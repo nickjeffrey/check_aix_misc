@@ -1,0 +1,2145 @@
+#!/usr/bin/ksh
+   
+# OUTSTANDING TASKS
+# ----------------
+#  - instead of alerting on the first error found and then exiting, put all errors into an array then report on all of them
+
+   
+   
+# CHANGE LOG
+# ----------
+#  2008/09/14	Nick Jeffrey	Script created
+#  2008/10/18	Nick Jeffrey	Add more error checking
+#  2008/11/19	Nick Jeffrey	Add checks for MPIO disk paths, syslog, name resolution, mail queues
+#  2008/12/13	Nick Jeffrey	Add checks for time synchronization
+#  2009/01/14	Nick Jeffrey	Enhance time sync checks to look at stratums of time servers
+#  2009/01/21	Nick Jeffrey	Add a check for /dev/ipldevice
+#  2009/01/22	Nick Jeffrey	Confirm all active volume groups are readable
+#  2009/05/06	Nick Jeffrey	Enhance check for qdaemon process
+#  2009/06/11	Nick Jeffrey	Add check for confirming name resolution for loopback (required by SNMP daemons)
+#  2009/06/22	Nick Jeffrey	Add check for stale physical partitions in all active volume groups
+#  2009/06/29	Nick Jeffrey	Check status of system attention light
+#  2009/06/30	Nick Jeffrey	Check to see if AIX is using reserved source ports (<1024) for NFS mounts
+#  2009/08/29	Nick Jeffrey	Break script up into functions to make it more modular
+#  2010/08/20	Nick Jeffrey	Bug fix - check_sysdumpdev function was calling $SUDO variable instead of $sudo
+#  2010/09/25	Nick Jeffrey	Bug fix - confirm default route exists
+#  2010/09/26	Nick Jeffrey	Add $verbose variable for extra output for debugging
+#  2010/09/26	Nick Jeffrey	Add check_sudo function
+#  2010/09/28	Nick Jeffrey	Add check_avamar_client function for hosts that use EMC Avamar for backups
+#  2011/01/07	Nick Jeffrey	Add check_tsm_client function for hosts that use TSM backup/archive client
+#  2011/01/07	Nick Jeffrey	Add check_rmc_daemon function
+#  2011/01/07	Nick Jeffrey	Update the check_system_attention_light function to stop using the lsrsrc command
+#  2011/01/08	Nick Jeffrey	Skip check for /etc/niminfo on VIO servers
+#  2011/01/08	Nick Jeffrey	Skip avamar,tsm checks on VIO servers
+#  2011/01/08	Nick Jeffrey	bug fixes in check_sudo function
+#  2011/01/08	Nick Jeffrey	Add check_nim_server function
+#  2011/01/08	Nick Jeffrey	Add check_sshd function
+#  2011/01/09	Nick Jeffrey	Add check_for_multiple_instances
+#  2011/05/12   Nick Jeffrey    Bug fixes in check_sendmail_queue function  
+#  2011/05/14   Nick Jeffrey    Custom queue_threshold=1000 for flyht.com (busy mail server) 
+#  2011/05/14   Nick Jeffrey    Assorted formatting fixes 
+#  2011/05/14   Nick Jeffrey    Remove check_mpio function - duplicated functionality in the check_aix_disk_paths script 
+#  2012/12/20	Nick Jeffrey	Enhance check_name_resolution to perform forward DNS queries against all nameservers 
+#  2012/12/20	Nick Jeffrey	Add uname check to ensure this system is running AIX
+#  2012/12/20	Nick Jeffrey	Enhance the check_wtmp function
+#  2012/12/21	Nick Jeffrey	Enhance check_name_resolution to perform reverse DNS queries against all nameservers 
+#  2012/12/21	Nick Jeffrey	Add check for bogus 0.0.0.0 IP address entry in /etc/hosts
+#  2013/08/01	Nick Jeffrey	Add ping_ntp_servers function
+#  2014/04/14	Nick Jeffrey	enhance check_tsm_client function to confirm dsmcad process is running
+#  2014/06/05	Nick Jeffrey	Add check to confirm that /etc/rc.local is called from /etc/inittab
+#  2014/09/05	Nick Jeffrey	Skip check of /etc/rc.local file on VIO servers
+#  2014/09/05	Nick Jeffrey	Only check time sync if machine has been up for at least one hour
+#  2014/09/10	Nick Jeffrey	Add check_uptime subroutine to see if machine has been recently rebooted
+#  2014/10/29   Nick Jeffrey    AIX 6100-09-02 tightened up permissions on /var/spool/mqueue.  Use sudo to check directory contents.
+#  2014/10/29	Nick Jeffrey	Bug fix - change method for calculating number of mail messages in sendmail queue.
+#  2015/05/06	Nick Jeffrey	Add check_netbackup_client function for hosts that use NetBackup for backups
+#  2015/06/08	Nick Jeffrey	Skip DNS checks if DNS server is 8.8.8.8 or 8.8.4.4 (Google public DNS used by DMZ hosts)
+#  2015/06/08	Nick Jeffrey	Add skip_nim_clients array variable to skip NIM checks for AIX hosts out on a DMZ
+#  2015/06/09	Nick Jeffrey	Bug fix in check_for_multiple_instances.  Need to exclude processes containing "ssh" to avoid double-counting on local machine
+#  2016/03/11	Nick Jeffrey	Enhance check_netbackup_client function to confirm hostname is registered correctly with backup server
+#  2016/05/24	Nick Jeffrey	Remove check_printer_queue function  (moved to check_aix_printers script)
+#  2016/05/24	Nick Jeffrey	Remove "touch /var/adm/messages ; sudo refresh -s syslog" section.  Just alert if /var/adm/messages does not exist, but do not try to fix it.
+#  2016/05/24	Nick Jeffrey	Remove "touch /var/adm/wtmp" section.  Just alert if /var/adm/wtmp does not exist, but do not try to fix it.
+#  2016/05/24	Nick Jeffrey	Cleanup obsolete sudo definitions
+#  2016/10/13	Nick Jeffrey	add check_iocp function to confirm I/O completion ports are available
+#  2017/08/21	Nick Jeffrey	Add check_ipv6_loopback function to confirm that IPv6 loopback address ::1 exists on lo0 eth adapter - required for AIX 7.x SNMP daemons
+#  2018/03/28	Nick Jeffrey	Remove ping_ntp_servers and check_time_sync functions.  Functionality moved to separate script check_unix_time_sync
+#  2018/03/28	Nick Jeffrey	Enhance check_iocp function to confirm it does not run on VIOS
+#  2018/03/28	Nick Jeffrey	Check for existence of /var/log/*.log files used by syslog
+#  2019/02/04   Nick Jeffrey	ping default gateway
+#  2019/03/11	Nick Jeffrey	Remove section that validates DNS name resolution.  Broken out into a separate script called check_dns_unix.
+#  2019/03/11	Nick Jeffrey	Remove section that validates IPv6 loopback name resolution.  Broken out into a separate script called check_dns_unix.
+#  2019/10/04	Nick Jeffrey	Bug fix in check_netbackup_client 
+
+
+#
+# Nagios plugin for performing miscellaneous AIX checks:
+# 	    - confirm sudo is installed
+# 	    - sanity checks on boot logical volume
+#           - confirm /etc/rc.tcpip is executable
+#           - confirm loopback entry exists in /etc/hosts 
+#           - confirm aio0 device exists (AIX 5.3 only)
+#           - confirm that no user has more than 1000 mail messages (need to elevate privs with sudo)
+#           - confirm /etc/resolv.conf contains valid info
+#           - confirm we can ping name servers
+#           - confirm /var/adm/messages exists for syslog
+#           - syslog sanity checks
+#           - confirm we only have one default route
+#           - ping default router
+#           - confirm hostname does not contain FQDN
+#           - confirm sendmail queue is not filling up with queued messages
+#           - confirm host exists in DNS
+#           - confirm print jobs are not piling up in print queue
+#           - if a smart host is listed in /etc/mail/sendmail.cf, confirm we can ping it
+#           - check for important processes
+#           - syslog sanity checks
+#           - confirm each hdisk in rootvg has a boot logical volume (ie is bootable)
+#           - confirm boot logical volume exists
+#           - confirm all varied on volume groups are readable (checks for corrupt volume groups)
+# 	    - confirm /etc/rc.local is executed at boot time
+#           - confirm recent TSM backup (if TSM client is installed)
+#           - confirm recent Symantec NetBackup activity (if installed)
+#           - confirm recent Avamar backup activity (if installed)
+#           - confirm system attention light is not illuminated
+#           - confirm RMC daemon is communicating with HMC
+#           - NIM server/client sanity checks
+#           - sanity checks for system dump device
+#           - check for recent reboot (within last hour)
+#           - confirm /var/adm/wtmp file exists
+#           - confirm NFS source ports are set correctly
+
+
+
+ 
+# NOTES
+# -----
+#  This script should return one (and only one) line of ouput.  Multiple
+#  lines of output are silently ignored by nagios.
+# 
+#  The line of output will become the body of the alert message sent by nagios
+#
+#  
+#  This script is executed remotely on a monitored system by the NRPE or check_by_ssh
+#  methods available in nagios.  
+#
+#  If you hare using the check_by_ssh method, you will need a section in the services.cfg
+#  file on the nagios server that looks similar to the following.
+#  This assumes that you already have ssh key pairs configured.
+#      define service {
+#              use                             generic-8x5-service
+#              hostgroup_name                  all_aix
+#              service_description             Miscellaneous AIX checks
+#              check_command                   check_by_ssh!/usr/local/nagios/libexec/check_aix_misc
+#              }
+#
+#
+#  Alternatively, if you are using the NRPE method, you should have a section similar to the following in 
+#  the services.cfg file:
+#      define service{
+#               use                             generic-8x5-service
+#               hostgroup_name                  all_aix
+#               service_description             Miscellaneous AIX checks
+#               check_command                   check_nrpe!check_aix_misc -t 30
+#               normal_check_interval           240     ; only check every 4 hours
+#               notification_options            c,r     ; Send notifications about critical and recovery events
+#  If you are using the NRPE method, you will also need a command definition similar to the following on each monitored host
+#  in the /usr/local/nagios/nrpe/nrpe.cfg file:
+#      command[check_aix_misc]=/usr/local/nagios/libexec/check_aix_misc
+#
+#
+#
+#  This script executes as the nagios user, but there are a few steps that need to be executed with root privileges.
+#  We handle this by using sudo to execute certain commands, so you will need to ensure that sudo is installed, and 
+#  entries similar to the following exist in the /etc/sudoers file:
+#      User_Alias      NAGIOS_USER = nagios
+#      Cmnd_Alias      LS = /usr/bin/ls
+#      Cmnd_Alias      GREP = /usr/bin/grep
+#      Cmnd_Alias      BOOTLIST = /usr/bin/bootlist
+#      Cmnd_Alias      NIMCLIENT = /usr/sbin/nimclient
+#      Cmnd_Alias      SYSDUMPDEV = /usr/bin/sysdumpdev
+#      Cmnd_Alias      STARTSRC = /usr/bin/startsrc
+#      NAGIOS_USER ALL = (root) NOPASSWD: LS,GREP,BOOTLIST,NIMCLIENT,NTPQ,SYSDUMPDEV,STARTSRC
+#
+#
+#
+#
+#
+# TROUBLESHOOTING
+# ---------------
+#   If you have trouble with this nagios check, here are a few hints.
+#     1) Be sure have you sudo installed and configured.  This is the number one source of issues.
+#     2) If you get the following error, it means the /etc/sudoers file is missing a required entry.
+#             Remote command execution failed: Password:
+#     3) Be sure to run this script while logged in as the nagios user (not as root).
+#
+#
+#
+# HINTS
+# -----
+#  Put the more important checks closer to the top of this script.  Since this script will
+#  generate an alert on the first problem it finds, you want to find out about the more
+#  important problems first.
+#
+#  Here's a programming tip.  Use [[ ]] conditionals instead of ( )
+#  Wanna know why?  It's because an "exit" statement inside a [[ ]] block will exit 
+#  the entire script, while an "exit" statement inside a ( ) block will only exit the ( ) block.
+#  Example of the "wrong" way to do it:
+#      $lsdev -l aio0 | $grep -q Available || (
+#         echo "$CHECK_NAME WARN - the aio0 device does not exist
+#         exit $WARN			#This will NOT exit the entire script!
+#      )
+#  Example of the "right" way to do it:
+#      if  [[ `$lsdev -l aio0 | $awk '{print $2}'` != "Available" ]]; then
+#         echo "$CHECK_NAME WARN - the aio0 device does not exist
+#         exit $WARN			#exit script
+#      fi
+#
+#  If you don't know what a "function" is in ksh, it's the same as a "sub" in perl (aka a subroutine)
+#
+#
+   
+   
+   
+# Get the name of the script
+# You need to do this outside of a function, 
+# because $0 inside of a function returns the 
+# function name, not the script name.
+scriptname=$0
+
+
+
+   
+function declare_variables {   
+   #
+   #define name of nagios check
+   CHECK_NAME=AIX_MISC
+   #
+   # define verbose output (yes|no)
+   verbose=no
+   #
+   # define variables
+   #
+   awk=/usr/bin/awk
+   sed=/usr/bin/sed
+   grep=/usr/bin/grep
+   uniq=/usr/bin/uniq
+   lsdev=/usr/sbin/lsdev
+   wc=/usr/bin/wc
+   cat=/usr/bin/cat
+   ls=/usr/bin/ls
+   ps=/usr/bin/ps
+   basename=/usr/bin/basename
+   find=/usr/bin/find
+   sudo=/usr/bin/sudo
+   head=/usr/bin/head
+   tail=/usr/bin/tail
+   netstat=/usr/bin/netstat
+   hostname=/usr/bin/hostname
+   host=/usr/bin/host
+   sendmail=/usr/sbin/sendmail
+   sleep=/usr/bin/sleep
+   ping=/etc/ping
+   nslookup=/usr/bin/nslookup
+   lslpp=/usr/bin/lslpp
+   nimclient=/usr/sbin/nimclient
+   lsvg=/usr/sbin/lsvg
+   lspv=/usr/sbin/lspv
+   bootlist=/usr/bin/bootlist
+   lsattr=/usr/sbin/lsattr
+   nfso=/usr/sbin/nfso
+   sysdumpdev=/usr/bin/sysdumpdev
+   devsysdump=/dev/sysdump
+   lslv=/usr/sbin/lslv
+   startsrc=/usr/bin/startsrc
+   uname=/usr/bin/uname
+   uptime=/usr/bin/uptime
+   ifconfig=/usr/sbin/ifconfig
+   #
+   # Nagios return codes - this script returns a value to nagios for processing
+   #
+   OK=0 
+   WARN=1
+   CRITICAL=2
+   UNKNOWN=3
+}			#end of function   
+   
+  
+
+
+ 
+function sanity_checks {   
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running sanity_checks function
+   fi
+   # confirm required files exist
+   #
+   if [[ ! -f "$awk" ]] then
+      echo "$CHECK_NAME UKNOWN required file $awk not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$awk" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $awk is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi 
+   if [[ ! -f "$sed" ]] then
+      echo "$CHECK_NAME UKNOWN required file $sed not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$sed" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sed is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi 
+   if [[ ! -f "$grep" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $grep not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$grep" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $grep is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi 
+   if [[ ! -f "$uniq" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $uniq not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$uniq" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $uniq is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi 
+   if [[ ! -f "$lsdev" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lsdev not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$lsdev" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lsdev is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi 
+   if [[ ! -f "$wc" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $wc not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$wc" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $wc is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$cat" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $cat not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$cat" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $cat is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$ls" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ls not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$ls" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ls is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$ps" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ps not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$ps" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ps is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$basename" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $basename not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$basename" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $basename is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$find" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $find not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$find" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $find is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$sudo" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sudo not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$sudo" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sudo is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$head" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $head not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$head" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $head is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$tail" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $tail not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$tail" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $tail is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$netstat" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $netstat not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$netstat" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $netstat is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$hostname" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $hostname not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$hostname" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $hostname is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$host" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $host not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$host" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $host is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$sendmail" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sendmail not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$sendmail" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sendmail is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$sleep" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sleep not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$sleep" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sleep is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$ping" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ping not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$ping" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ping is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$nslookup" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $nslookup not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$nslookup" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $nslookup is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$lslpp" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lslpp not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$lslpp" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lslpp is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$nimclient" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $nimclient not found "
+      exit $UNKNOWN 
+   fi
+   #if [[ ! -x "$nimclient" ]] then
+   #   echo "$CHECK_NAME UNKNOWN required file $nimclient is not executable by the nagios user "
+   #   exit $UNKNOWN 
+   #fi
+   if [[ ! -f "$lsvg" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lsvg not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$lsvg" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lsvg is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$lspv" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lspv not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$lspv" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lspv is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$bootlist" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $bootlist not found "
+      exit $UNKNOWN 
+   fi
+   #if [[ ! -x "$bootlist" ]] then
+   #   echo "$CHECK_NAME UNKNOWN required file $bootlist is not executable by the nagios user "
+   #   exit $UNKNOWN 
+   #fi
+   if [[ ! -f "$lsattr" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lsattr not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$lsattr" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lsattr is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$nfso" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $nfso not found "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -x "$nfso" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $nfso is not executable by the nagios user "
+      exit $UNKNOWN 
+   fi
+   if [[ ! -f "$sysdumpdev" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $sysdumpdev not found "
+      exit $UNKNOWN
+   fi
+   #if [[ ! -x "$sysdumpdev" ]] then
+   #   echo "$CHECK_NAME UNKNOWN required file $sysdumpdev is not executable by the nagios user "
+   #   exit $UNKNOWN
+   #fi
+   if [[ ! -c "$devsysdump" ]] then
+      #NOTE: this is a "character special file", so we do not check for it with -f
+      echo "$CHECK_NAME UNKNOWN required file $devsysdump not found "
+      exit $UNKNOWN
+   fi
+   #if [[ ! -x "$devsysdump" ]] then
+   #   echo "$CHECK_NAME UNKNOWN required file $devsysdump is not executable by the nagios user "
+   #   exit $UNKNOWN
+   #fi
+   if [[ ! -f "$lslv" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lslv not found "
+      exit $UNKNOWN
+   fi
+   if [[ ! -x "$lslv" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $lslv is not executable by the nagios user "
+      exit $UNKNOWN
+   fi
+   if [[ ! -f "$uname" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $uname not found "
+      exit $UNKNOWN
+   fi
+   if [[ ! -x "$uname" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $uname is not executable by the nagios user "
+      exit $UNKNOWN
+   fi
+   if [[ ! -f "$uptime" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $uptime not found "
+      exit $UNKNOWN
+   fi
+   if [[ ! -x "$uptime" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $uptime is not executable by the nagios user "
+      exit $UNKNOWN
+   fi
+   if [[ ! -f "$ifconfig" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ifconfig not found "
+      exit $UNKNOWN
+   fi
+   if [[ ! -x "$ifconfig" ]] then
+      echo "$CHECK_NAME UNKNOWN required file $ifconfig is not executable by the nagios user "
+      exit $UNKNOWN
+   fi
+   #
+   ostype=`$uname`
+   if [[ $ostype != AIX ]] then
+      echo "$CHECK_NAME CRITICAL - This check only runs on AIX.  The $uname command is reporting that this system is $ostype."
+      exit $CRITICAL
+   fi
+
+}			#end of function   
+   
+   
+
+
+function check_for_multiple_instances {
+   ####################################################
+   #
+   # Confirm only a single instance of this script is running.
+   #
+   # If multiple copies are running, it may be indicative of 
+   # a bug in the script that has caused a hang.
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_for_multiple_instances function
+   fi
+   instances=`ps -ef | grep -v grep | grep -v ssh | grep $scriptname | wc -l | awk '{print $1}'`
+   if [[ $instances -gt 2 ]] then
+      echo "$CHECK_NAME WARN - there are $instances instances of the $scriptname script running.  The script may have hung. "
+      exit $UNKNOWN
+   fi
+}			#end of function   
+
+
+
+
+function check_sudo {   
+   ####################################################
+   #
+   # Confirm sudo is configured to allow the nagios
+   # user to run the checks in this script
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_sudo function
+   fi
+   #
+   # declare variable for temporary filename
+   sudoers=/tmp/sudoers.nagiostest
+   #
+   # ensure the temporary file does not already exist
+   if [[ -f "$sudoers" ]]; then
+      rm -f $sudoers
+   fi
+   if [[ -f "$sudoers" ]]; then
+      echo "$CHECK_NAME UNKNOWN Could not delete temporary file $sudoers"
+      exit $UNKNOWN
+   fi
+   #
+   # Since the nagios user does not have rights to the /etc/sudoers file, copy it to a temporary file for analysis.
+   $sudo $grep . /etc/sudoers > $sudoers
+   if [[ ! -f "$sudoers" ]] then
+      echo "$CHECK_NAME UNKNOWN Could not create temporary file $sudoers.  Check sudo configuration. "
+      exit $UNKNOWN
+   fi
+   #
+   # check for the User_Alias line in the sudoers file
+   if [[ `$cat $sudoers | grep "User_Alias *NAGIOS_USER *= *nagios" | awk '{print $4}'` != "nagios" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find User_Alias NAGIOS_USER = nagios in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   #
+   #
+   # check for the Cmnd_Alias lines in the sudoers file
+   if [[ `$cat $sudoers | grep "Cmnd_Alias *LS *= */usr/bin/ls" | awk '{print $4}'` != "/usr/bin/ls" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find Cmnd_Alias LS = /usr/bin/ls in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   if [[ `$cat $sudoers | grep "Cmnd_Alias *GREP *= */usr/bin/grep" | awk '{print $4}'` != "/usr/bin/grep" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find Cmnd_Alias GREP = /usr/bin/grep in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   if [[ `$cat $sudoers | grep "Cmnd_Alias *BOOTLIST *= */usr/bin/bootlist" | awk '{print $4}'` != "/usr/bin/bootlist" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find Cmnd_Alias BOOTLIST = /usr/bin/bootlist in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   if [[ `$cat $sudoers | grep "Cmnd_Alias *NIMCLIENT *= */usr/sbin/nimclient" | awk '{print $4}'` != "/usr/sbin/nimclient" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find Cmnd_Alias NIMCLIENT = /usr/sbin/nimclient in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   if [[ `$cat $sudoers | grep "Cmnd_Alias *SYSDUMPDEV *= */usr/bin/sysdumpdev" | awk '{print $4}'` != "/usr/bin/sysdumpdev" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find Cmnd_Alias SYSDUMPDEV = /usr/bin/sysdumpdev in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   if [[ `$cat $sudoers | grep "Cmnd_Alias *STARTSRC *= */usr/bin/startsrc" | awk '{print $4}'` != "/usr/bin/startsrc" ]]; then
+      echo "$CHECK_NAME CRITICAL Could not find Cmnd_Alias STARTSRC = /usr/bin/startsrc in /etc/sudoers file.  Check sudo configuration. "
+      exit $CRITICAL
+   fi
+   #
+   #
+   # check for the user privilege specification line(s) in the sudoers file
+   #
+   # define an array with all the commands
+   set -A sudo_commands LS GREP BOOTLIST NIMCLIENT NTPQ SYSDUMPDEV STARTSRC
+   #
+   # loop through array
+   for sudo_command in ${sudo_commands[*]} ; do
+      #
+      if [[ $verbose = "yes" ]] ; then
+         echo checking for sudo command $sudo_command
+      fi
+      if [[ ! `$cat $sudoers | $grep "^NAGIOS_USER *ALL *= *(root) NOPASSWD:" | $grep $sudo_command` = *+($sudo_command)* ]]; then
+         echo "$CHECK_NAME CRITICAL Could not find $sudo_command in user privilege specification line of /etc/sudoers file.  Check sudo configuration. "
+         exit $CRITICAL
+      fi
+   done			#end of for loop
+   #
+   # remove the temporary file
+   test -f $sudoers && rm $sudoers
+}			#end of function   
+
+
+
+   
+function check_boot_lv {   
+   ####################################################
+   #
+   # Confirm all disks in rootvg have a boot logical volume (this means they are bootable)
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_boot_lv procedure
+   fi
+   #
+   # get a list of all disks in rootvg put into an array
+   #
+   set -A rootvg_disks `$lsvg -p rootvg | $grep -v ^PV_NAME | $grep -v ^rootvg: | $awk '{print $1}'`
+   #
+   # perform checks on disks in rootvg
+   #
+   # loop through array
+   for disk in ${rootvg_disks[*]} ; do
+      #
+      #confirm all disks in rootvg are in an active state
+      #
+      if  [[ `$lsvg -p rootvg | $grep -v ^PV_NAME | $grep -v ^rootvg: | $grep $disk | $awk '{print $2}'` = "active" ]]; then
+         #
+         # disk shows as active - continue processing
+         #
+         continue
+      else
+         #
+         # disk is not active - may be bad disk, lost fibre path, etc
+         #
+         echo "$CHECK_NAME WARNING - rootvg disk $disk is not in an active state.  <br>Please check with: <b>lsvg -p rootvg</b> <br>You may have to <b>varyonvg r
+   ootvg</b> to make the disk active.  This may happen if a VIO server is offline or a path to the disk has been lost. "
+         exit $WARN
+      fi
+      #
+      #confirm all disks in rootvg have a boot logical volume
+      #
+      if  [[ `$lspv -p $disk | $grep hd5 | $grep boot | $awk 'print $6}'` = "boot" ]]; then
+         #
+         # disk has a boot logical volume - continue processing
+         #
+         continue
+      else
+         #
+         # disk does not have a boot logical volume - sysadmin may have forgotten to run bosboot -ad $disk
+         #
+         echo "$CHECK_NAME WARNING - rootvg disk $disk does not have a boot logical volume.  If this disk is a potential boot device, please run bosboot -ad $disk to add a boot logical volume to this disk. "
+         exit $WARN
+      fi
+      #
+      #confirm all disks in rootvg are listed as potential boot devices in the bootlist
+      #
+      if  [[ `$sudo $bootlist -m normal -o | grep $disk | $awk '{print $1}'` = "$disk" ]]; then
+         #
+         # disk is listed as a bootable device in the bootlist - continue processing
+         #
+         continue
+      else
+         #
+         # bootlist will never choose this disk when booting - sysadmin may have forgotten add to bootlist
+         #
+         echo "$CHECK_NAME WARNING - rootvg disk $disk is not in the bootlist.  If this disk should be used as a bootable device, please add it to the boot list.  Example: $bootlist -m normal $rootvg_disks[*]} "
+         exit $WARN
+      fi
+   done		#end of for loop
+   #
+   # Perform checks against the boot logical volume
+   #
+   # confirm the /dev/ipldevice exists
+   # This file contains the boot image, and is required at boot time.
+   # The /dev/ipldevice should be a hard link to the "raw" disk device that contains the hd5 logical volume (ie: /dev/rhdisk0)
+   # You can figure out where the hd5 boot logical volume is located with:
+   #    $ lsvg -M rootvg | grep hd5
+   #    hdisk0:1        hd5:1:1
+   #    hdisk1:1        hd5:1:2
+   # In the above example, the rootvg is mirrored, so we have the hd5 logical volume on two physical volumes.  Since
+   # the /dev/ipldevice can only be linked to one of them, we will just choose the first one.  Please note that we 
+   # use the "raw" disk device associated with the hdisk - /dev/rhdisk0 instead of /dev/hdisk0
+   # 
+   ipldevice=`$sudo $ls /dev/ipldevice`
+   if [[ $ipldevice != "/dev/ipldevice" ]] then
+      echo "$CHECK_NAME CRITICAL - the /dev/ipldevice device does not exist.  This device is required at boot time.  This device should be a hard link to the raw disk device that contains the hd5 boot logical volume.  Please recreate with: ln /dev/rhdisk?? /dev/ipldevice "
+      exit $CRITICAL
+   fi
+   #
+   # confirm the /dev/ipl_blv device exists
+   # This is the boot logical volume that the system looks for at boot time
+   # 
+   ipl_blv=`$sudo $ls /dev/ipl_blv`
+   if [[ $ipl_blv != "/dev/ipl_blv" ]] then
+      echo "$CHECK_NAME CRITICAL - the /dev/ipl_blv device does not exist.  This is the boot logical volume that is required at boot time.  This device should be a hard link to /dev/hd5.  Please recreate with: ln /dev/hd5 /dev/ipl_blv "
+      exit $CRITICAL
+   fi
+   #
+   # confirm the major/minor numbers of the /dev/ipl_blv match /dev/hd5
+   # Since /dev/ipl_blv is a hard link to /dev/hd5, the major/minor numbers should be the same
+   # 
+   ipl_blv_major=`$sudo $ls -l /dev/ipl_blv | awk '{print $5}' | sed -e 's/,//'`
+   ipl_blv_minor=`$sudo $ls -l /dev/ipl_blv | awk '{print $6}'`
+   hd5_major=`$sudo $ls -l /dev/hd5     | awk '{print $5}' | sed -e 's/,//'`
+   hd5_minor=`$sudo $ls -l /dev/hd5     | awk '{print $6}'`
+   if [[ $ipl_blv_major != "$hd5_major" ]] then
+      echo "$CHECK_NAME CRITICAL - the /dev/ipl_blv major device number does not match the /dev/hd5 major device number.  Since /dev/ipl_blv should be a hard link to /dev/hd5, the major numbers should match.  Please recreate with: ln /dev/hd5 /dev/ipl_blv "
+      exit $CRITICAL
+   fi
+   if [[ $ipl_blv_minor != "$hd5_minor" ]] then
+      echo "$CHECK_NAME CRITICAL - the /dev/ipl_blv minor device number does not match the /dev/hd5 minor device number.  Since /dev/ipl_blv should be a hard link to /dev/hd5, the major numbers should match.  Please recreate with: ln /dev/hd5 /dev/ipl_blv "
+      exit $CRITICAL
+   fi
+}			#end of function
+
+
+
+
+
+
+   
+function confirm_volgrps_readable {   
+   ####################################################
+   #
+   # Confirm all active volume groups are readable
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running confirm_volgrps_readable function
+   fi
+
+   #
+   # Get a listing of all the varied on volume groups
+   #
+   badvg=""	#initialize variable
+   set -A vglist "`$lsvg -o`"
+   for vg in ${vglist[*]}; do
+      #
+      # confirm we can read each volume group (redirect stderr to stdout so we can capture any errors)
+      #
+      x=`$lsvg $vg 2>&1`
+      # HINT: if there are any other error messages to trap, they can be added here
+      echo $x | grep -q "Unable to read or write logical volume manager" && badvg="$badvg $vg"
+   done
+   #
+   # check to see if any volume groups were corrupt
+   #
+   echo $badvg | grep -q [a-zA-Z0-9] && echo "$CHECK_NAME CRITICAL - Unable to read or write LVM for the following VG: $badvg" && exit $CRITICAL
+}			#end of function
+
+   
+
+
+
+   
+function check_vg_for_stale_pp_pv {   
+   ####################################################
+   #
+   # Check for stale physical partitions and physical volumes in volume groups
+   #
+   ####################################################
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_vg_for_stale_pp_pv function
+   fi
+   # get a list of all (active) volume groups and put into an array
+   #
+   set -A vg `$lsvg -o`
+   #
+   # check for stale physical partitions
+   #
+   for vgname in ${vg[*]} ; do
+       #
+       # confirm there are no stale physical partitions in rootvg
+       #
+       if [[ "`$lsvg $vg | $grep STALE | $awk '{print $6}'`" = "0" ]] then
+          #
+          # there are no stale PP's - continue processing
+          #
+          continue
+       else
+          #
+          # stale PP's were detected
+          #
+          echo "$CHECK_NAME WARN - $vg volume group has `$lsvg $vg | $grep STALE | $awk '{print $6}'` stale physical partitions.  <br>Please check with: <b>lsvg $vg</b> <br>You may have to <b>varyonvg $vg</b> and <b>syncvg -v $vg</b> to correct this problem.  This may happen if a VIO server is offline or a path to the  disk has been lost."
+          exit $WARN
+       fi
+   done
+   #
+   #
+   #
+   # check for stale physical volumes
+   #
+   for vgname in ${vg[*]} ; do
+       #
+       # confirm there are no stale physical volumes in rootvg
+       #
+       if [[ "`$lsvg $vg | $grep STALE | $awk '{print $3}'`" = "0" ]] then
+          #
+          # there are no stale PV's - continue processing
+          #
+          continue
+       else
+          #
+          # stale PV's were detected
+          #
+          echo "$CHECK_NAME WARN - $vg volume group has `$lsvg $vg | $grep STALE | $awk '{print $3}'` stale physical volumes.  <br>Please check with: <b>lsvg $vg</b> <br>You may have to <b>varyonvg $vg</b> and <b>syncvg -v $vg</b> to correct this problem.  This may happen if a VIO server is offline or a path to the disk has been lost. "
+          exit $WARN
+       fi
+   done
+}			#end of function   
+   
+
+
+function check_rmc_daemon {
+   #
+   # confirm the RMC daemons are running normally
+   # this is a prereq for running the lsrsrc command later in this script
+   #
+   # If you get a response similar to the following:
+   #   /usr/bin/lsrsrc 
+   #   /usr/sbin/rsct/bin/lsrsrc-api: 2612-022 A session could not be established with the RMC daemon on "local_node".
+   # It usually means that this LPAR was cloned from another node, and you need to bounce the RMC daemons to 
+   # get the LPAR communicating with the HMC/IVM again.  Use these steps:
+   #     # cleanup config information for the node
+   #     /usr/sbin/rsct/install/bin/recfgct -s
+   #     # stop RSCT
+   #     /usr/sbin/rsct/bin/rmcctrl -z
+   #     # Remove cluster security services trusted host list file
+   #     test -e rm /var/ct/cfg/ct_has.thl && rm /var/ct/cfg/ct_has.thl
+   #     # start RSCT
+   #     /usr/sbin/rsct/bin/rmcctrl -A
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_rmc_daemont function
+   fi
+   #
+   if [[ `/usr/bin/lsrsrc 2>&1`  = "/usr/sbin/rsct/bin/lsrsrcdef-api: 2612-022 A session could not be established with the RMC daemon on \"local_node\"." ]] then
+      echo "$CHECK_NAME WARN - session could not be established with RMC daemon.  This can happen if the LPAR cloned from a mksysb.  You need to fix up the RPM daemons with these commands:  /usr/sbin/rsct/install/bin/recfgct -s ; /usr/sbin/rsct/bin/rmcctrl -z ; rm /var/ct/cfg/ct_has.thl ; /usr/sbin/rsct/bin/rmcctrl -A "
+      exit $WARN
+   fi
+}			#end of function   
+
+
+
+   
+function check_system_attention_light {   
+   ####################################################
+   #
+   # Check status of system attention light
+   #
+   ####################################################
+   # NOTE: This is only valid for systems NOT managed by an HMC
+   #       If you run the usysfault command from an HMC-managed system, you will get
+   #       the following message:  This command is not supported on this system
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_system_attention_light function
+   fi
+   #
+   attentionlight=unknown					#initialize variable
+   if [[ -f /usr/lpp/diagnostics/bin/usysfault ]] then
+      attentionlight=`/usr/lpp/diagnostics/bin/usysfault 2>&1`
+   fi
+   if [[ $attentionlight = "fault" ]]; then
+         echo "$CHECK_NAME WARN - system attention light is illuminated.  Please check output of diag and errpt.  After issue has been resolved, clear the error report with \"errclear 0\", and turn off the system attention light with \"/usr/lpp/diagnostics/bin/usysfault -s normal\"" 
+         exit $WARN
+   fi
+   if [[ $attentionlight = "normal" ]]; then
+      true				#just call a no-op command so there is something in this if block
+   fi
+   if [[ $attentionlight = "This command is not supported on this system" ]]; then
+      true				#just call a no-op command so there is something in this if block
+      # If we get this far, we are trying to run the command on an LPAR managed by an HMC or IVM, which is not supported.
+   fi
+   if [[ $attentionlight = "unknown" ]]; then
+      true				#just call a no-op command so there is something in this if block
+      # If we get this far, the usysfault binary might not even exist
+   fi
+}			#end of function   
+   
+
+
+
+
+
+function check_rctcpip {
+   ####################################################
+   #
+   # Confirm /etc/rc.tcpip is executable
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_rctcpip function
+   fi
+   #
+   if [[ ! -e /etc/rc.tcpip ]] then
+      echo "$CHECK_NAME CRITICAL - the /etc/rc.tcpip file does not exist.  This file is required to start TCPIP daemons at boot time."
+      exit $CRITICAL
+   fi
+   rctcpipperm=`$ls -l /etc/rc.tcpip | $awk '{print $1}'`
+   if [[ $rctcpipperm != "-rwxr--r--" ]] then
+      echo "$CHECK_NAME CRITICAL - the /etc/rc.tcpip file has $rctcpipperm permissions.  This file is executed at boot time to start TCPIP daemons, and the permissions should be -rwxr--r--.  Please correct the permissions with: chmod 744 /etc/rc.tcpip"
+      exit $CRITICAL
+   fi
+}			#end of function
+
+   
+  
+
+function check_rclocal {
+   ####################################################
+   #
+   # Confirm /etc/rc.local is executable and is called by /etc/inittab at boot time
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_rclocal function
+   fi
+   #
+   if [[ ! -e /usr/ios/cli/ioscli ]] then               #skip this check on VIO servers, because they are not NIM clients
+      # confirm the file exists
+      if [[ ! -e /etc/rc.local ]] ; then
+         echo "$CHECK_NAME CRITICAL - the /etc/rc.local file does not exist.  This file is used to start applications at boot time.  Please create with:  touch /etc/rc.local , chmod 755 /etc/rc.local"
+         exit $CRITICAL
+      fi
+      #
+      # check file permissions
+      if [[ -e /etc/rc.local ]] ; then
+         rclocalperm=`$ls -l /etc/rc.local | $awk '{print $1}'`
+         if [[ $rclocalperm != "-rwxr-xr-x" ]] ; then
+            echo "$CHECK_NAME CRITICAL - the /etc/rc.local file has $rclocalperm permissions.  This file is executed at boot time to start applications, and the permissions should be -rwxr-xr-x.  Please correct the permissions with: chmod 755 /etc/rc.local"
+            exit $CRITICAL
+         fi
+      fi
+      #
+      # Confirm /etc/rc.local is executed at boot time.
+      # Note that /etc/inittab is only readable by root, so we need to use sudo to read the /etc/inittab file.
+      # We want to see a line similar to the following in /etc/inittab: 
+      # local:2:once:/etc/rc.local >/dev/console 2>&1
+      if [[ `$sudo $grep ^local:2:once:/etc/rc.local /etc/inittab | $awk '{print $1}'` != "local:2:once:/etc/rc.local" ]] ; then
+         echo "$CHECK_NAME WARN - the /etc/inittab file does not have an entry to execute /etc/rc.local at boot time.  Please run the following command: mkitab \"local:2:once:/etc/rc.local >/dev/console 2>&1\""
+         exit $WARN
+      fi
+   fi 
+}			#end of function
+
+   
+ 
+function check_loopback {   
+   ####################################################
+   #
+   # Confirm name resolution for loopback hostname
+   #
+   ####################################################
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_loopback function
+   fi
+   #
+   # The /etc/hosts file should have a line similar to: 127.0.0.1    loopback localhost      # loopback (lo0) name/address
+   # Many daemons bind to localhost, but a few (hostmibd,aixmibd) bind to loopback.
+   # If there is no name resolution for loopback, hostmibd and aixmibd can fail to connect to snmpd.
+   # NOTE: We use awk to print the first three fields because we are not sure of the number of spaces/tabs.
+   if [[ `$grep ^127.0.0.1 /etc/hosts | $awk '{print $1,$2,$3}'` != "127.0.0.1 loopback localhost" ]] ; then
+      echo "$CHECK_NAME WARN - cannot find entry for loopback in /etc/hosts file.  Name resolution for loopback is required by hostmibd and aixmibd.  Please add the following to /etc/hosts: 127.0.0.1               loopback localhost      # loopback (lo0) name/address"
+      exit $WARN
+   fi
+}			#end of function
+
+
+
+
+   
+function check_aio {   
+   ####################################################
+   #
+   # Confirm aio0 device exists on AIX 5.3
+   #
+   ####################################################
+   # The aio0 device is used for async i/o, and is required by Oracle when running on AIX 5.3
+   # Note that the aio0 device goes away in AIX 6.1 and is replaced by a restricted tunable found as part of the ioo command
+   # Async I/O is dynamically adjusted based on workload on AIX 6.1, so we no longer have to worry about it.
+   #
+   # The /dev/aio0 device does not get recreated automatically when restoring an AIX 5.3 system from a mksysb image
+   # The aio0 device is not really required on non-Oracle machines, but we create it everywhere just for consistency.
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_aio function
+   fi
+   #
+   # Confirm we are running AIX 5.3
+   #
+   if [[ `oslevel` = "5.3.0.0" ]]; then
+      #
+      if  [[ `$lsdev -l aio0 | $awk '{print $2}'` != "Available" ]]; then
+         echo "$CHECK_NAME WARN - the aio0 device does not exist.  This device is required on AIX 5.3 for oracle, but it doesn't hurt to have on all machines.  Run the following commands: chdev -l aio0 -a minservers=10 -a maxservers=100 -a maxreqs=12288 -a autoconfig=available <br>mkdev -l aio0"
+         exit $WARN
+      fi		#end of if block
+   fi			#end of if block
+}			#end of function   
+
+
+
+
+
+
+
+
+    
+
+    
+   
+function check_syslog {   
+   ####################################################
+   #
+   # syslog sanity checks
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_syslog function
+   fi
+   #
+   # check for existence of multiple log files used by syslog
+   #
+   if [[ ! -e /usr/ios/cli/ioscli ]] then               #skip this check on VIO servers, because they do not usually have syslog configured
+      for logfile in /var/adm/messages /var/log/auth.log /var/log/daemon.log /var/log/kernel.log /var/log/mail.log /var/log/user.log /var/log/sudo.log
+      do 
+         if [[ ! -e $logfile ]] then
+            echo "$CHECK_NAME WARN logfile $logfile does not exist.  The syslog subsystem cannot write messages to this file unless this file exists.  Please run the following commands: touch $logfile , refresh -s syslogd"
+            exit $WARN
+         fi
+      done
+   fi
+   #
+   if [[ -e /var/adm/messages ]] then
+      #
+      # warn if /var/adm/messages grows to more than 10MB
+      # HINT: do not mv /var/adm/messages /var/adm/messages.old because syslog gets confused if the file disappears
+      #       You should rotate the logfile with commands similar to: 
+      #       cp /var/adm/messages /var/adm/messages.old ; cp /dev/null /var/adm/messages
+      #
+      # HINT: rotate the /var/adm/messages file automatically by adding a line similar to the following to /etc/syslog.conf:
+      #       *.debug /var/adm/messages rotate size 10000k files 4 compress
+      # 
+      if [[ `$ls -l /var/adm/messages | $awk '{print $5}'` -gt 10000000 ]] then
+         echo "$CHECK_NAME WARN - /var/adm/messages file has grown to over 10MB - consider updating syslog.conf to automatically rotate this logfile." 
+         exit $WARN
+      fi
+   fi 
+}			#end of function   
+   
+
+
+
+   
+
+
+function check_default_route {   
+   #####################################################
+   #
+   # confirm we only have one default route
+   #
+   #####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_default_route function
+   fi
+   #
+   routecount=`$netstat -rn | $grep default | $wc -l | $sed -e "s/ //g"`
+   if [[ $routecount -eq 0 ]] then
+      echo "$CHECK_NAME WARN - default route not found.  Please add a default route with smitty tcpip."
+      exit $WARN
+   fi
+   if [[ $routecount -gt 1 ]] then
+      echo "$CHECK_NAME WARN - $routecount default routes found.  There should be only 1.  Please fix up routing table."
+      exit $WARN
+   fi
+}			#end of function   
+   
+
+function ping_default_gateway {   
+   #####################################################
+   #
+   # confirm the default gateway is available
+   # This confirms the gateway exists, but not that it will forward packets.
+   #
+   #####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running ping_default_gateway function
+   fi
+   # 
+   # output looks similar to the following:
+   #  Destination        Gateway           Flags   Refs     Use  If   Exp  Groups
+   #  default            10.0.0.2          UG        0      736 en0     -      -
+   #
+   #
+   defaultrouter=`$netstat -rn | $grep ^default | $awk '{print $2}'"`
+   $ping -c 2 $defaultrouter | grep -q "100% packet loss" && echo "$CHECK_NAME WARN - could not ping default gateway $defaultrouter" && exit $WARN
+}			#end of function   
+   
+
+
+
+
+   
+function check_qdaemon {   
+   ####################################################
+   #
+   # fix up qdaemon process
+   #
+   ####################################################
+   # 
+   # The /usr/sbin/qdaemon process will sometimes just show up 
+   # as "qdaemon" instead of "/usr/bin/qdaemon".  This causes one
+   # of the checks to fail, as it looks for "/usr/bin/qdaemon".
+   # Luckily, we can fix this just by killing the qdaemon process,
+   # and it automatically respawns as /usr/sbin/qdaemon
+   #
+   # Look for " qdaemon " (note the spaces on either side).
+   # This will eliminate matches for /usr/sbin/qdaemon, as 
+   # well as entries like /usr/lib/lpd/piobe -d p -X 850 /var/spool/qdaemon/t-LQaia
+   # 
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_qdaemon function
+   fi
+   #
+   $ps -ef | $grep -v grep | grep " qdaemon " && $awk '{print "kill " $2}' | sh -x
+}			#end of function   
+
+
+
+   
+   
+function check_processes {
+   ###################################################
+   #
+   # confirm important processes are running
+   #
+   ####################################################
+   #
+   # Define an array containing all the processes we want to monitor.
+   # This is a list of processes that should always be running when the system is up.
+   # Note that we do not check for sshd, as it sometimes runs from /usr/local/sbin/sshd or /usr/sbin/sshd, depending on the version.
+   #
+   # HINT: the process name will be in a different column if it has been running for more than a day.  Examples:
+   #   ps -ef | grep qdaemon
+   #   root  155834  254082   0 10:42:00      -  0:00 /usr/sbin/qdaemon
+   #   root 3088512 2814136   0   Oct 01      -  0:00 /usr/sbin/qdaemon
+   # We work around this by checking for the process name in both column 8 and column 9
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running confirm_volgrps_readable function
+   fi
+   #
+   set -A processes "/usr/sbin/srcmstr /usr/sbin/cron /usr/sbin/qdaemon /usr/sbin/xntpd"
+   for process in ${processes[*]} ; do
+      #
+      # check for the process name in column 8
+      #
+      if [[ `$ps -ef | $grep -v grep | $grep $process | $awk '{print $8}'` != "$process" ]] ; then
+         #
+         # check for the process name in column 9
+         #
+         if [[ `$ps -ef | $grep -v grep | $grep $process | $awk '{print $9}'` != "$process" ]] ; then
+            echo "$CHECK_NAME WARN - $process is not running"
+            exit $WARN
+         fi
+      fi
+   done
+}			#end of function   
+   
+
+
+function check_sshd {   
+   #############################################################
+   #
+   # confirm ssh daemon is running
+   # We pay particular attention to this daemon because 
+   # if it does, it makes it hard to login remotely.
+   #
+   # Yes, I realize that this nagios check is often run over an
+   # ssh connection, so it may seem pointless to check for ssh
+   # when we have already logged in via ssh.  
+   # However, some sites use NRPE instead of check_by_ssh, 
+   # so this check will be useful in some environments.
+   #
+   #############################################################
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_sshd function
+   fi
+   #
+   sshd_installed=no
+   if [[ -e "/usr/sbin/sshd" ]] then
+      sshd_installed=yes
+   fi 
+   if [[ -e "/usr/local/sbin/sshd" ]] then
+      sshd_installed=yes
+   fi 
+   #
+   sshd_running=no
+   ps -ef | grep -v grep | grep -q "/usr/local/sbin/sshd" && sshd_running=yes
+   ps -ef | grep -v grep | grep -q "/usr/sbin/sshd"       && sshd_running=yes
+   #
+   # 
+   if [[ $sshd_installed = "yes" ]] then
+      if [[ $sshd_running = "no" ]] then
+         echo "$CHECK_NAME WARN sshd is not running.  Attempting to automatically restart sshd."
+         $sudo $startsrc -s sshd
+         exit $WARN
+      fi
+   fi
+}			#end of function   
+
+
+
+
+
+function check_uptime {
+   ####################################################
+   #
+   # send an alert if the machine was recently rebooted
+   #
+   ####################################################
+   #
+   #
+   # Send an alert if the machine has been up for less than one hour.
+   # This lets us know if the machine crashes, or a sneaky sysadmin tries to slip in a reboot without approval.
+   # We figure this out by looking at the 4th field.  So long as it is not "mins," we should be ok.
+   # /usr/bin/uptime
+   #  04:32PM up 32  mins,  1 user,  load average: 1.21, 1.03, 0.74
+   #  04:37PM up 273 days, 6:07, 2 users, load average: 0.57, 0.93, 1.02
+   #  05:37PM   up   1:37,  2 users,  load average: 0.95, 1.52, 1.26
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_uptime function
+   fi
+   #
+   current_uptime=`$uptime | $awk '{print $4}'`
+   if [[  "$current_uptime" = "mins," ]] ; then
+      detailed_uptime=`$uptime | $awk '{print $3,$4}'`
+      echo "$CHECK_NAME WARN - recent reboot detected.  Current uptime is $detailed_uptime  " && exit $WARN
+   fi
+}			#end of function   
+
+
+
+
+   
+   
+function check_hostname {   
+   ####################################################
+   #
+   # confirm hostname does not contain FQDN
+   #
+   ####################################################
+   #NOTE: the hostname should not contain the DNS domain name - breaks TSM client functionality,
+   #      since we create TSM nodenames based on the hostname.
+   #      If a machine is restored from a mksysb image, the hostname is sometimes not set correctly.
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_hostname function
+   fi
+   #
+   $hostname | $grep -q "\." && echo "$CHECK_NAME WARN - hostname contains FQDN.  Please use smitty tcpip to remove the domain name portion from the hostname."
+   $hostname | $grep -q "\." && exit $WARN
+}			#end of function   
+
+
+
+   
+   
+function check_wtmp {    
+   ####################################################
+   #
+   # Truncate the /var/adm/wtmp file at 30MB
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_wtmp function
+   fi
+   #
+   if [[ ! -e /var/adm/wtmp ]] then
+      echo "$CHECK_NAME WARN Could not create /var/adm/wtmp file.  This file is used to store the login activity displayed by the /usr/bin/last command.  Please create the /var/adm/wtmp file."
+      exit $WARN
+   fi
+   #
+   # warn if /var/adm/wtmp grows to more than 30MB
+   # HINT: do not mv /var/adm/wtmp /var/adm/wtmp.old because AIX gets confused if the file disappears
+   #       You should rotate the logfile with commands similar to: 
+   #       cp /var/adm/wtmp /var/adm/wtmp.old ; cp /dev/null /var/adm/wtmp
+   #
+   # HINT: rotate the /var/adm/messages file automatically by adding a line similar to the following to /etc/syslog.conf:
+   #       *.debug /var/adm/messages rotate size 10000k files 4 compress
+   # 
+   if [[ `$ls -l /var/adm/wtmp | $awk '{print $5}'` -gt 30000000 ]] then
+      echo "$CHECK_NAME WARN - /var/adm/wtmp file has grown to over 30MB - consider using logrotate to automatically rotate this logfile." 
+      exit $WARN
+   fi
+}			#end of function   
+
+
+
+   
+
+
+function check_nim_client {   
+   #############################################################
+   #
+   # confirm NIM client functionality 
+   #
+   #############################################################
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_nim_client function
+   fi
+   #
+   # There might be AIX machines out on a DMZ that cannot talk to the NIM server.
+   # This is a list of AIX hostnames called skip_nim_clients that we will not check.
+   set -A skip_nim_client dmzhost1 dmzhost2 dmzhost3 europa
+   #
+   # Check to see if the local machine is in the skip_nim_clients array variable
+   is_this_a_nim_client=yes
+   for x in ${skip_nim_client[*]} ; do
+      if [[ $x = `$hostname` ]] ; then 
+         is_this_a_nim_client=no
+      fi
+   done 					#end of for loop
+   #
+   if [[ ! -e /usr/ios/cli/ioscli ]] then		#skip this check on VIO servers, because they are not NIM clients
+      if [[ $is_this_a_nim_client = "yes" ]]; then	#confirm this machine is not a DMZ host in the skip_nim_clients array variable
+         if [[ ! -e /etc/niminfo ]] then
+            echo "$CHECK_NAME WARN Could not find /etc/niminfo - needed for NIM functionality - please investigate"
+            exit $WARN
+         fi
+         #
+         # check to see if the bos.sysmgt.nim.client fileset is installed
+         if [[ ! -e $nimclient ]] then
+            echo "$CHECK_NAME WARN Could not find $nimclient.  Please install the bos.sysmgt.nim.client fileset for NIM functionality."
+            exit $WARN
+         fi
+         #
+         # check to see if machine is a NIM server or NIM client
+         #
+         if [[ -e $nimclient ]] then
+            x=`$lslpp -l | $grep bos.sysmgt.nim.master | awk '{print $1}`
+            if [[ $x != "bos.sysmgt.nim.master" ]] then
+               #
+               # We only get here if the bos.sysmgt.nim.master fileset is NOT installed - meaning this is a NIM client, not a NIM server.
+               #
+               # Run a client-side NIM command to confirm we can talk to the NIM server.  This command lists the operations which may be initiated from this machine.
+               # Example command output:
+               #  # nimclient -l -p -s pull_ops
+               #  allocate
+               #  deallocate
+               #  cust
+               #  bos_inst
+               #  maint_boot
+               #  restvg
+               #  sync
+               #  takeover
+               #  dbts
+               #  swts
+               #  linux_inst
+               #  cust
+               #  bos_inst
+               #  showdump
+               #  snap
+               #
+               #
+               x=`$sudo $nimclient -l -p -s pull_ops | $grep allocate | $tail -n 1 | $wc -l | $awk '{print $1}'`
+               if [[ ! $x -eq 1 ]] then
+                  echo "$CHECK_NAME WARN  - Problem validating NIM client functionality.  Could not get a response from the following command: $nimclient -l -p -s pull_ops"
+                  exit $WARN
+               fi
+            fi
+         fi
+      fi
+   fi
+}			#end of function   
+   
+
+
+function check_nim_server {   
+   #############################################################
+   #
+   # confirm NIM server functionality 
+   #
+   #############################################################
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_nim_server function
+   fi
+   #
+   if [[ ! -e /usr/ios/cli/ioscli ]] then		#skip this check on VIO servers, because they are not NIM servers
+      if [[ $is_this_a_nim_client = "yes" ]]; then	#confirm this machine is not a DMZ host in the skip_nim_clients array variable
+         if [[ ! -e /etc/niminfo ]] then
+            echo "$CHECK_NAME WARN Could not find /etc/niminfo - needed for NIM functionality - please investigate"
+            exit $WARN
+         fi
+         if [[ ! -e $nimclient ]] then
+            #Yes, the nim server will have the bos.sysmgt.nim.client fileset as well as the bos.sysmgt.nim.master fileset.
+            echo "$CHECK_NAME WARN Could not find $nimclient.  Please install the bos.sysmgt.nim.client fileset for NIM functionality."
+            exit $WARN
+         fi
+         #
+         # check to see if machine is a NIM server or NIM client
+         #
+         x=`$lslpp -l | $grep bos.sysmgt.nim.master | awk '{print $1}`
+         if [[ $x == "bos.sysmgt.nim.master" ]] then
+            #
+            # We only get here if the bos.sysmgt.nim.master fileset is installed - meaning this is a NIM server, not a NIM client.
+            # Confirm the nimesis daemon is running 
+            #
+            ps -ef | grep -v grep | grep -q "/usr/sbin/nimesis -s" || nimserver=notrunning
+            if [[ $nimserver = "notrunning" ]] then
+              echo "$CHECK_NAME WARN  - /usr/bin/nimesis process is not running on the NIM server.  Please run: $startsrc -s nimesis"
+              exit $WARN
+            fi
+         fi
+      fi
+   fi
+}			#end of function   
+   
+
+
+
+
+
+
+
+
+
+function check_smart_host {   
+   ####################################################
+   #
+   # If a smart host is used for sending mail, confirm the smart host can be reached.
+   #
+   ####################################################
+   # Please note that this section needs to read the /etc/mail/sendmail.cf, which is only readable by root.
+   # These files normally have permission -rw-------, so they cannot be read by the nagios user.
+   # We work around this by using sudo to execute the commands with root privileges.  You will need a section
+   # similar to the following in /etc/sudoers:
+   #   User_Alias      NAGIOS_USER = nagios
+   #   Cmnd_Alias      GREP = /usr/bin/grep
+   #   NAGIOS_USER ALL = (root) NOPASSWD: GREP
+   #
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_smart_host function
+   fi
+   # 
+   if [[ -e /etc/mail/sendmail.cf ]] then
+      #
+      # look for a line similar to DSmysmtpserver.example.com
+      smarthost=`$sudo $grep ^DS /etc/mail/sendmail.cf | $sed -e "s/^DS//"`
+      #
+      # confirm the smarthost is not zero-length (ie confirm we really do have a smarthost entry)
+      if [[ ! -z "$smarthost" ]] then
+         #
+         # Now we know there is a smarthost entry.  Let's see if we can ping it.
+         #
+         x=`$ping -c 2 $smarthost 2>&1`	#redirect STDERR to STDOUT so we can trap DNS errors
+         echo $x | $grep -q "100% packet loss" && echo "$CHECK_NAME WARN - no ping reply from smarthost $smarthost listed in /etc/mail/sendmail.cf.  This machine  may be unable to send mail." && exit $WARN
+         #
+         echo $x | $grep -q "NOT FOUND"        && echo "$CHECK_NAME WARN - could not resolve name for smarthost $smarthost listed in /etc/mail/sendmail.cf.  This machine may be unable to send mail.  Please check DNS and /etc/mail/sendmail.cf." && exit $WARN
+      fi
+   fi
+}			#end of function   
+   
+
+
+
+function check_sendmail_queue {
+   ####################################################
+   #
+   # ensure the sendmail queue is not filling up
+   #
+   ####################################################
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_sendmail_queue function
+   fi
+   #
+   # Checking for messages in sendmail queue
+   # Note that each message will be made up of two files:
+   #    d?????? contains the actual message body
+   #    q?????? contains the message headers (to/from/subject/date)
+   # So, when checking the number of files in the mail queue, divide the total by two (use awk for division)
+   #
+   queue_dir=/var/spool/mqueue
+   queue_count=`$sudo $ls -l $queue_dir | $wc -l | $awk '{print $1/2}'`
+   queue_threshhold=50
+   grep example.com /etc/resolv.conf && queue_threshold=1000   	#higher threshold for busy mail server
+   if [[ $queue_count -gt $queue_threshhold ]] then
+      #
+      # warn about any zero-length files that should be deleted
+      #
+      $find $queue_dir -size 0 | $grep -q mqueue && echo "$CHECK_NAME WARN Found zero-length files in sendmail queue. Please delete zero length files in $queue_dir"
+      $find $queue_dir -size 0 | $grep -q mqueue && exit $WARN
+      #
+      # attempt to flush queue to clear out the messages
+      #
+      $sendmail -q
+      $sleep 5
+      #
+      # check queue again to see if it was flushed
+      #
+      queue_count=`$sudo $ls -l $queue_dir | $wc -l | $awk '{print $1/2}'`
+      if [[ $queue_count -gt $queue_threshhold ]] then
+         echo "$CHECK_NAME WARN $queue_dir has $queue_count messages in the sendmail queue.  Please look at the messages in $queue_dir, or try flushing the queue with: $sendmail -q"
+         exit $WARN
+      fi
+   fi
+}                       #end of function
+
+   
+
+
+
+
+
+
+    
+
+
+
+   
+function check_user_mailboxes {   
+   ####################################################
+   #
+   # Confirm no user has more than 100 messages in their mailbox
+   #
+   ####################################################
+   # Please note that this section needs to read mail files located at /var/spool/mail/username.
+   # These files normally have permission -rw-rw----, so they cannot be read by the nagios user.
+   # We work around this by using sudo to execute the commands with root privileges.  You will need a section 
+   # similar to the following in /etc/sudoers:
+   #   User_Alias      NAGIOS_USER = nagios
+   #   Cmnd_Alias      GREP = /usr/bin/grep
+   #   NAGIOS_USER ALL = (root) NOPASSWD: GREP
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_user_mailboxes function
+   fi
+   #
+   #
+   # get list of users that have mail and put into an array
+   set -A users_with_mail `$find /var/spool/mail -type f`
+   for mailfile in ${users_with_mail[*]} ; do
+      #
+      # the file at /var/spool/mail/$user is a single file that contains all the mail for that user
+      # parse out the From: lines to figure out how many messages are in that file
+      messagecount=`$sudo $grep From: ${mailfile} | $wc -l | $sed -e "s/ //g"`
+      # figure out the username based on the /var/spool/mail/$user file
+      user=`$basename $mailfile` 
+      if [[ "$messagecount" -ge 1000 ]] then 
+         echo "$CHECK_NAME WARN - $messagecount mail messages for $user in /var/spool/mail/$user.  Please have the owner of this mailbox login as $user and clear their mail with mail command"
+         exit $WARN
+      fi
+   done
+}			#end of function   
+
+
+
+
+
+
+
+function check_nfs_source_port {   
+   ####################################################
+   #
+   # Confirm the source port for NFS mounts is <1024
+   #
+   ####################################################
+   # In this context, "reserved ports" means UDP/TCP ports <1024
+   # AIX 4.2 used "reserved ports" as the source ports for NFS mounts
+   # AIX 4.2.1 and greater will use any random port
+   # This causes problems with some systems that expect the source port to be <1024
+   # NIM clients like the NFS mounts used by NIM to use reserved ports
+   # Mounts to other UNIX flavors sometimes require reserved ports
+   # All in all, it's better just to use reserved ports for broader compatibility.
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_nfs_source_port function
+   fi
+   #
+   #if [[ `$nfso -o nfs_use_reserved_ports` = "nfs_use_reserved_ports = 0" ]] then 
+   #   echo "$CHECK_NAME WARN - NFS is not using reserved ports.  This can cause compatibility problems for NIM and other NFS mounts.  Please run the following command to fix immediately, and add the command to the end of /etc/rc.tcpip to ensure it is activated at each reboot : $nfso -o nfs_use_reserved_ports=1"
+   #   exit $WARN
+   #fi
+   continue 		#just put something in this function so it does not error out
+}			#end of function   
+   
+   
+ 
+
+
+
+
+
+function check_sysdumpdev {
+   #
+   # check the primary and secondary dump devices
+   #
+   # By default, AIX 5.x will use paging space (/dev/hd6) as the primary dump device, and /dev/sysdumpnull as
+   # the secondary dump device.
+   # We do not want that.  Since AIX cannot mirror its dump device, we want a dump logical volume on each
+   # physical disk in rootvg.
+   #
+   # If the primary dump device is set to /dev/hd6, you will always get an error when you try to
+   # varyonvg rootvg after experiencing stale physical partitions after a VIO outage.
+   #
+   # confirm the primary system dump device exists, and is not set to the paging space
+   #
+   # The output of the sysdumpdev command will look like this:
+   #   primary              /dev/lvdump1
+   #   secondary            /dev/lvdump2
+   #   copy directory       /var/adm/ras
+   #   forced copy flag     TRUE
+   #   always allow dump    TRUE
+   #   dump compression     ON
+   #
+   # If the primary device does not exist, the output will look like:
+   #   primary              -
+   #
+   # In some cases, the primary device will be the paging volume:
+   #   primary              /dev/hd6
+   #
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_sysdumpdev function
+   fi
+   #
+   #
+   primarydumpdev=`$sudo $sysdumpdev -l   | $grep primary   | $sed -e "s/^primary *//"`
+   secondarydumpdev=`$sudo $sysdumpdev -l | $grep secondary | $sed -e "s/^secondary *//"`
+   #
+   #
+   # confirm we could find something
+   #
+   if [[ -z $primarydumpdev ]] then
+      echo "$CHECK_NAME UNKNOWN - could not determine primary dump device.  Please check with: sysdumpdev -l "
+      exit $UNKNOWN
+   fi
+   if [[ -z $secondarydumpdev ]] then
+      echo "$CHECK_NAME UNKNOWN - could not determine secondary dump device.  Please check with: sysdumpdev -l "
+      exit $UNKNOWN
+   fi
+   #
+   # exit the script if the primary dump device is not set (the value will be -)
+   #
+   if [[ "$primarydumpdev" = "-" ]] then
+      echo "$CHECK_NAME CRITICAL - primary dump device does not exist.  Please create a Logical Volume of type sysdump, and set
+   it as the primary system dump device with these commands: <br>mklv -t sysdump -y lvdump1 rootvg numLP hdisk# <br>sysdumpdev -P -p /dev/LVname "
+      exit $CRITICAL
+   fi
+   #
+   # exit the script if the primary dump device is currently set to the paging space
+   #
+   if [[ "$primarydumpdev" = "/dev/hd6" ]] then
+      echo "$CHECK_NAME WARN - primary dump device is set to the paging space $primarydumpdev.  We want a dedicated paging space. Please create a Logical Volume of type sysdump, and set it as the primary system dump device with these commands: <br>mklv -t sysdump -y lvdump1 rootvg numLP hdisk# <br>sysdumpdev -P -p /dev/lvdump1 "
+      exit $WARN
+   fi
+   #
+   # exit the script if the primary dump device is currently set to /dev/sysdumpnull
+   #
+   if [[ "$primarydumpdev" = "/dev/sysdumpnull" ]] then
+      echo "$CHECK_NAME WARN - primary dump device is set to the null device $primarydumpdev.  We want a dedicated paging space. Please create a Logical Volume of type sysdump, and set it as the primary system dump device with these commands: <br>mklv -t sysdump -y lvdump1 rootvg numLP hdisk# <br>sysdumpdev -P -p /dev/lvdump1 "
+      exit $WARN
+   fi
+   #
+   # if there is only a single physical disk in rootvg, the primary dump device should be /dev/lvdump1, and
+   # the secondary dump device should be /dev/sysdumpnull
+   #
+   if [[ $rootvg_pv -eq 1 ]] then
+      if [[ "$primarydumpdev" != "/dev/lvdump1" ]] then
+         echo "$CHECK_NAME WARN - primary dump device should be set to /dev/lvdump1. Please create a Logical Volume of type sysdump, and set it as the primary system dump device with these commands: <br>mklv -t sysdump -y lvdump1 rootvg numLP hdisk# <br>sysdumpdev -P -p /dev/lvdump1 "
+         exit $WARN
+      fi
+      if [[ "$secondarydumpdev" != "/dev/sysdumpnull" ]] then
+         echo "$CHECK_NAME WARN - secondary dump device should be set to /dev/sysdumpnull. Fix with this command: <br>sysdumpdev -P -s /dev/sysdumpnull "
+         exit $WARN
+      fi
+   fi
+   #
+   # if there are 2 or more physical disks in rootvg, the primary dump device should be /dev/lvdump1, and
+   # the secondary dump device should be /dev/lvdump2
+   #
+   if [[ $rootvg_pv -ge 2 ]] then
+      if [[ "$primarydumpdev" != "/dev/lvdump1" ]] then
+         echo "$CHECK_NAME WARN - primary dump device should be set to /dev/lvdump1. Please create a Logical Volume of type sysdump, and set it as the primary system dump device with these commands: <br>mklv -t sysdump -y lvdump1 rootvg numLP hdisk# <br>sysdumpdev -P -p /dev/lvdump1 "
+         exit $WARN
+      fi
+      if [[ "$secondarydumpdev" != "/dev/lvdump2" ]] then
+         echo "$CHECK_NAME WARN - secondary dump device should be set to /dev/lvdump2. Please create a Logical Volume of type sysdump, and set it as the secondary system dump device with these commands: <br>mklv -t sysdump -y lvdump2 rootvg numLP hdisk# <br>sysdumpdev -P -s /dev/lvdump2 "
+         exit $WARN
+      fi
+   fi
+
+
+
+   #
+   # Figure out the size of physical partitions in rootvg
+   #
+   ppsize=`$lsvg rootvg | $grep "PP SIZE" | $awk '{print $6}'`
+   #
+   # confirm we could find something
+   #
+   if [[ -z $ppsize ]] then
+      echo "$CHECK_NAME UNKNOWN - could not determine PP SIZE for rootvg.  Please check with: sysdumpdev -l "
+      exit $UNKNOWN
+   fi
+
+
+   #
+   # Figure out the number of PP's in the primary dump device
+   #
+   # The current value of $primarydumpdev has a format similar to: /dev/lvname
+   # But we need to snip off the /dev/ in the front, because the lsvg output
+   # only shows the name of the logical volume, not the full path to it.
+   #
+   primarydumpdev=`echo $primarydumpdev | sed -e "s/\/dev\///"`
+   primarydumpdev_pp=`$lsvg -l rootvg | $grep $primarydumpdev | $awk '{print $3}'`
+   #
+   # confirm we could find something
+   #
+   if [[ -z $primarydumpdev_pp ]] then
+      echo "$CHECK_NAME UNKNOWN - could not determine number of physical partitions in $primarydumpdev.  Please check with: sysdumpdev -l and lsvg -l rootvg"
+      exit $UNKNOWN
+   fi
+
+
+   #
+   # Calculate the current size of the primary dump device (convert to bytes)
+   #
+   primarydumpdev_size=$(( $ppsize * $primarydumpdev_pp * 1024 * 1024 ))
+   #
+   # confirm we could find something
+   #
+   if [[ -z $primarydumpdev_size ]] then
+      echo "$CHECK_NAME UNKNOWN - could not determine size of the primary dump device.  Please check with: lsvg -l rootvg"
+      exit $UNKNOWN
+   fi
+
+   #
+   #
+   # Calculate the required space for a system dump (in bytes)
+   #
+   dumpsizeneeded=`$sudo $sysdumpdev -e | $sed -e "s/.*: //"`
+   #
+   # confirm we could find something
+   #
+   if [[ -z $dumpsizeneeded ]] then
+      echo "$CHECK_NAME UNKNOWN - could not determine the required space for a system dump.  Please check with: sysdumpdev -e"
+      exit $UNKNOWN
+   fi
+
+
+   #
+   # Alert if the primary system dump device is not large enough
+   #
+   if [[ $primarydumpdev_size -lt $dumpsizeneeded ]] then
+      #
+      #figure out how much bigger the dump device should be
+      increase=$(( $dumpsizeneeded - $primarydumpdev_size ))
+      #
+      #convert from bytes to physical partitions
+      #NOTE: the / operator in ksh performs integer arithmetic only - it will discard anything after the decimal point.
+      increase=$(( $increase / $ppsize / 1024 / 1024 ))
+      #
+      # +1 because "/" may have rounded down, and +1 for breathing room
+      increase=$(( $increase + 2 ))
+      #
+      echo "$CHECK_NAME CRITICAL - Primary system dump device is only $primarydumpdev_size bytes, but needs to be able to hold a system dump of $dumpsizeneeded bytes.  Use the following command to increase the size of the Primary system dump device: extendlv $primarydumpdev $increase "
+      exit $CRITICAL
+   fi
+
+   #
+   # We only need to figure out the size of the secondary dump device if it is not /dev/sysdumpnull
+   #
+   # (this section to be written)
+
+}			#end of function
+
+
+
+   
+   
+ 
+
+
+
+
+function check_iocp {
+   #
+   # This section confirms the I/O completion port /dev/iocp0 is in the Available state, which is required by Oracle 12
+   #
+   # This is what we are looking for:
+   #     lsdev | grep iocp
+   #     iocp0        Available             I/O Completion Ports
+   #
+   # If the iocp0 device is in a Defined state, there will be sqlplus errors similar to the following:
+   #   sqlplus 'as sysdba' exec(): 0509-036 Cannot load program sqlplus because of the following errors:
+   #   rtld: 0712-001 Symbol CreateIoCompletionPort was referenced from module /oracle/oradb/product/12.1.0/lib/libttsh12.so(), 
+   #   but a runtime definition of the symbol was not found.
+   # 
+   # 
+   #
+   if [[ ! -e /usr/ios/cli/ioscli ]] then               #skip this check on VIO servers, because they do not need the iocp0 device.
+      if  [[ `lsdev | $grep ^iocp0 | $awk '{print $2}'` == "Defined" ]]; then
+         echo "$CHECK_NAME WARN - I/O completion port iocp0 is in a Defined state.  Please make available with these two commands: mkdev -l iocp0 , chdev -l iocp0 -P -a autoconfig=available"
+         exit $WARN
+      fi
+   fi
+}			#end of function   
+
+
+function check_avamar_client {
+   #
+   # This section confirms the EMC Avamar backup client is installed.
+   # If your environment does not use EMC Avamar for backups, you should comment out this function at the bottom of the script.
+   #
+   # If you are using version 4 of the Avamar client for AIX, you will get output similar to this:
+   #     lslpp -l | grep Avamar
+   #     AVMRclnt                  4.0.3.24  COMMITTED  EMC Avamar client 4.0.3-24 for AIX
+   #     AVMRdb2                   4.0.3.24  COMMITTED  EMC Avamar client 4.0.3-24 for DB2
+   #
+   # If you are using version 5 of the Avamar client for AIX, you will get output similar to this:
+   #     lslpp -l | grep Avamar
+   #     AvamarClient-aix5-ppc  5.0.105.169  COMMITTED  EMC Avamar client 5.0.105-169 for AIX
+   #     AvamarDB2-aix5-ppc64   5.0.105.169  COMMITTED  EMC Avamar client 5.0.105-169 for DB2
+
+
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_avamar_client function
+   fi
+   #
+   if [[ ! -e /usr/ios/cli/ioscli ]] then		#skip this check on VIO servers, because they are not backed up via avamar
+      # all hosts should have the basic flat file backup client (either version 4 or 5)
+      if  [[ `lslpp -l | $grep AvamarClient-aix5-ppc | $awk '{print $1}'` != "AvamarClient-aix5-ppc" ]]; then
+         if  [[ `lslpp -l | $grep AVMRclnt | $awk '{print $1}'` != "AVMRclnt" ]]; then
+            echo "$CHECK_NAME WARN - could not find EMC Avamar backup client for AIX.  Please confirm this host is getting backed up."
+            exit $WARN
+         fi
+      fi
+      #
+      # only machines with DB2 installed should have the DB2 agent
+      # look for filesystems that begin with /db2/
+      if [[ `df | awk '{print $7}' | grep ^/db2/ | wc -l | awk '{print $1}'` -ge 1 ]]; then
+         #
+         # if we get this far, DB2 is installed, so check for the Avamar DB2 agent.
+         if  [[ `lslpp -l | $grep AvamarDB2-aix5-ppc64 | $awk '{print $1}'` != "AvamarDB2-aix5-ppc64" ]]; then
+            if  [[ `lslpp -l | $grep AVMRdb2 | $awk '{print $1}'` != "AVMRdb2" ]]; then
+               echo "$CHECK_NAME WARN - could not find EMC Avamar backup client for DB2.  Please confirm the databases on this host are getting backed up."
+               exit $WARN
+            fi
+         fi
+      fi
+   fi
+}			#end of function   
+
+
+
+
+
+function check_tsm_client {
+   #
+   # This section confirms the TSM backup/archive client is installed.
+   # If your environment does not use TSM for backups, you should comment out this function at the bottom of the script.
+   #
+   # If you are using version 6.2.2 of the TSM backup/archive client for AIX, you will get output similar to this:
+   #     lslpp -l | grep -i TSM
+   #
+   #      tivoli.tsm.client.api.32bit		6.2.2.0  COMMITTED  TSM Client - Application
+   #      tivoli.tsm.client.api.64bit		6.2.2.0  COMMITTED  TSM Client - 64bit Application
+   #      tivoli.tsm.client.ba.64bit.base	6.2.2.0  COMMITTED  TSM Client 64 - Backup/Archive
+   #      tivoli.tsm.client.ba.64bit.common	6.2.2.0  COMMITTED  TSM Client 64 - Backup/Archive
+   #      tivoli.tsm.client.ba.64bit.image	6.2.2.0  COMMITTED  TSM Client 64 - IMAGE Backup
+   #      tivoli.tsm.client.ba.64bit.web	6.2.2.0  COMMITTED  TSM Client 64 - Backup/Archive
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_tsm_client function
+   fi
+   if [[ ! -e /usr/ios/cli/ioscli ]] then		#skip this check on VIO servers, because they are not TSM clients  (UPDATE: VIOS 2.x has TSM client embedded!!)
+      #
+      # all hosts should have the basic flat file backup/archive client 
+      if  [[ `lslpp -l | $grep tivoli.tsm.client.ba.32bit.base | $awk '{print $1}'` != "tivoli.tsm.client.ba.32bit.base" ]]; then
+         if  [[ `lslpp -l | $grep tivoli.tsm.client.ba.64bit.base | $awk '{print $1}'` != "tivoli.tsm.client.ba.64bit.base" ]]; then
+            echo "$CHECK_NAME WARN - could not find TSM backup/archive client for AIX.  Please confirm this host is getting backed up."
+            exit $WARN
+         fi
+      fi
+      #
+      # confirm dsmcad (Distributed Storage Manager Client Acceptor Daemon) is running
+      if [[ `$ps -ef | $grep -v grep | $grep dsmcad | $wc -l | $awk '{print $1}'` -eq 0 ]] ; then
+         echo "$CHECK_NAME WARN - dsmcad process is not not running.  Please confirm this host is getting backed up."
+         exit $WARN
+      fi
+   fi
+}			#end of function   
+
+
+function check_netbackup_client {
+   #
+   # This section confirms the Symantec NetBackup client is installed.
+   # If your environment does not use NetBackup for backups, you should comment out this function at the bottom of the script.
+   #
+   # If you are using version 7.5 of the NetBackup client for AIX, you will get output similar to this:
+   #     lslpp -l | grep -i NetBackup
+   #
+   #       SYMCnbclt                  7.5.0.0  COMMITTED  NetBackup Client Fileset
+   #       SYMCnbjava                 7.5.0.0  COMMITTED  NetBackup Java Console Fileset
+   #       SYMCnbjre                  7.5.0.0  COMMITTED  NetBackup Java JRE Fileset
+   #       SYMCnbclt                  7.5.0.0  COMMITTED  NetBackup Client Fileset
+   #       SYMCnbjava                 7.5.0.0  COMMITTED  NetBackup Java Console Fileset
+   #       SYMCnbjre                  7.5.0.0  COMMITTED  NetBackup Java JRE Fileset
+   #
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running check_netbackup_client function
+   fi
+   if [[ ! -e /usr/ios/cli/ioscli ]] then		#skip this check on VIO servers
+      #
+      # all hosts should have the basic NetBackup Client Fileset
+      if  [[ `lslpp -l | $grep SYMCnbclt | $awk '{print $1}' | $uniq` != "SYMCnbclt" ]]; then
+         echo "$CHECK_NAME WARN - could not find Symantec NetBackup client for AIX.  Please confirm this host is getting backed up."
+         exit $WARN
+      fi
+      #
+      #
+      # Confirm that the binary files exist
+      if  [[ ! -f /usr/openv/netbackup/bin/bpcd ]]; then
+         echo "$CHECK_NAME WARN - Cannot find /usr/openv/netbackup/bin/bpcd - NetBackup client may not be installed.  Please investigate."
+         exit $WARN
+      fi
+      if  [[ ! -f /usr/openv/netbackup/bin/bpclntcmd ]]; then
+         echo "$CHECK_NAME WARN - Cannot find /usr/openv/netbackup/bin/bpclntcmd - NetBackup client may not be installed.  Please investigate."
+         exit $WARN
+      fi
+      if  [[ ! -f /usr/openv/netbackup/bin/vnetd ]]; then
+         echo "$CHECK_NAME WARN - Cannot find /usr/openv/netbackup/bin/vnetcmd - NetBackup client may not be installed.  Please investigate."
+         exit $WARN
+      fi
+      if  [[ ! -f /usr/openv/netbackup/bp.conf ]]; then
+         echo "$CHECK_NAME WARN - Cannot find /usr/openv/netbackup/bp.conf - NetBackup client may not be installed.  Please investigate."
+         exit $WARN
+      fi
+      #
+      #
+      # Confirm the config file has the correct hostname for defining the client.
+      # This is easy to miss changing when cloning systems via mksysb
+      $grep -q `$hostname` /usr/openv/netbackup/bp.conf && nbclient_name=`hostname`
+      if [[ "$nbclient_name" != `$hostname` ]]; then
+         echo "$CHECK_NAME WARN - NetBackup client config file does not match current hostname.  This can happen if a machine is cloned via mksysb.  Please correct the hostname in the /usr/openv/netbackup/bp.conf file, then restart the NetBackup client with these commands: /usr/openv/netbackup/bin/bp.kill_all ; /usr/openv/netbackup/bin/bp.start_all "
+         exit $WARN
+      fi
+      #
+      # This section commented out because it must run as root
+      # Confirm that the netbackup client is registered as the correct hostname.
+      # This is important because if a machine is cloned from a mksysb backup, 
+      # the /usr/openv/netbackup/bp.conf file will contain the wrong hostname.
+      # If the hostname is "myserver", you should get command output similar to the following:
+      #  expecting response from server booboo
+      #  myserver.example.com *NULL* 172.24.1.145 59376
+      #nbclient_name=unknown
+      #/usr/openv/netbackup/bin/bpclntcmd -pn 2>&1 | $grep -q `$hostname` && nbclient_name=`$hostname`
+      #if  [[ "$nbclient_name" != `$hostname` ]]; then
+      #   echo "$CHECK_NAME WARN - NetBackup client registered with incorrect hostname.  This can happen if a machine is cloned via mksysb.  Please correct the hostname in the /usr/openv/netbackup/bp.conf file, then restart the NetBackup client with these commands: /usr/openv/netbackup/bin/bp.kill_all ; /usr/openv/netbackup/bin/bp.start_all "
+      #   exit $WARN
+      #fi
+      #
+      #
+      # confirm bpcd and vnetd processes are running
+      # output should look similar to the following:
+      #  $ ps -ef | grep -i netback
+      #     root  6553806        1   0 09:28:03      -  0:00 /usr/openv/netbackup/bin/bpcd -standalone
+      #     root  6815998        1   0 09:28:03      -  0:00 /usr/openv/netbackup/bin/vnetd -standalone
+      if [[ `$ps -ef | $grep -v grep | $grep /usr/openv/netbackup/bin/bpcd | $wc -l | $awk '{print $1}'` -eq 0 ]] ; then
+         echo "$CHECK_NAME WARN - /usr/openv/netbackup/bin/bpcd Symantec NetBackup process is not not running.  Please confirm this host is getting backed up."
+         exit $WARN
+      fi
+      if [[ `$ps -ef | $grep -v grep | $grep /usr/openv/netbackup/bin/vnetd | $wc -l | $awk '{print $1}'` -eq 0 ]] ; then
+         echo "$CHECK_NAME WARN - /usr/openv/netbackup/bin/vnetd Symantec NetBackup process is not not running.  Please confirm this host is getting backed up."
+         exit $WARN
+      fi
+
+   fi
+}			#end of function   
+
+
+
+
+
+
+
+function send_alert {   
+   #
+   # if we get this far, it means that no problems were detected
+   #
+   if [[ $verbose = "yes" ]] ; then
+      echo Running send_alert function
+   fi
+   #
+   echo "$CHECK_NAME OK - all miscellaneous AIX checks completed successfully"
+   exit $OK
+}   			#end of function
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# ------------------- main body of script ------------------
+#
+# This section calls all the functions defined earlier in the script
+#
+declare_variables 
+sanity_checks 
+check_for_multiple_instances
+check_sudo
+check_boot_lv 
+confirm_volgrps_readable 
+check_vg_for_stale_pp_pv
+check_rmc_daemon
+check_system_attention_light 
+check_rctcpip
+check_rclocal
+check_loopback 
+check_aio
+check_syslog 
+check_default_route 
+ping_default_gateway
+check_qdaemon 
+check_sshd
+check_processes 
+check_uptime
+check_hostname 
+check_wtmp 
+check_nim_client 
+check_nim_server
+check_smart_host 
+check_sendmail_queue 
+check_user_mailboxes 
+check_nfs_source_port 
+check_sysdumpdev
+check_iocp
+#check_avamar_client
+check_tsm_client
+#check_netbackup_client
+send_alert 
