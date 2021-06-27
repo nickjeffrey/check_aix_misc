@@ -34,42 +34,43 @@
 #  2011/01/08	Nick Jeffrey	bug fixes in check_sudo function
 #  2011/01/08	Nick Jeffrey	Add check_nim_server function
 #  2011/01/08	Nick Jeffrey	Add check_sshd function
-#  2011/01/09	Nick Jeffrey	Add check_for_multiple_instances
+#  2011/01/09   Nick Jeffrey	Add check_for_multiple_instances
 #  2011/05/12   Nick Jeffrey    Bug fixes in check_sendmail_queue function  
 #  2011/05/14   Nick Jeffrey    Custom queue_threshold=1000 for flyht.com (busy mail server) 
 #  2011/05/14   Nick Jeffrey    Assorted formatting fixes 
 #  2011/05/14   Nick Jeffrey    Remove check_mpio function - duplicated functionality in the check_aix_disk_paths script 
-#  2012/12/20	Nick Jeffrey	Enhance check_name_resolution to perform forward DNS queries against all nameservers 
-#  2012/12/20	Nick Jeffrey	Add uname check to ensure this system is running AIX
-#  2012/12/20	Nick Jeffrey	Enhance the check_wtmp function
-#  2012/12/21	Nick Jeffrey	Enhance check_name_resolution to perform reverse DNS queries against all nameservers 
-#  2012/12/21	Nick Jeffrey	Add check for bogus 0.0.0.0 IP address entry in /etc/hosts
-#  2013/08/01	Nick Jeffrey	Add ping_ntp_servers function
-#  2014/04/14	Nick Jeffrey	enhance check_tsm_client function to confirm dsmcad process is running
-#  2014/06/05	Nick Jeffrey	Add check to confirm that /etc/rc.local is called from /etc/inittab
-#  2014/09/05	Nick Jeffrey	Skip check of /etc/rc.local file on VIO servers
-#  2014/09/05	Nick Jeffrey	Only check time sync if machine has been up for at least one hour
-#  2014/09/10	Nick Jeffrey	Add check_uptime subroutine to see if machine has been recently rebooted
+#  2012/12/20   Nick Jeffrey	Enhance check_name_resolution to perform forward DNS queries against all nameservers 
+#  2012/12/20   Nick Jeffrey	Add uname check to ensure this system is running AIX
+#  2012/12/20   Nick Jeffrey	Enhance the check_wtmp function
+#  2012/12/21   Nick Jeffrey	Enhance check_name_resolution to perform reverse DNS queries against all nameservers 
+#  2012/12/21   Nick Jeffrey	Add check for bogus 0.0.0.0 IP address entry in /etc/hosts
+#  2013/08/01   Nick Jeffrey	Add ping_ntp_servers function
+#  2014/04/14   Nick Jeffrey	enhance check_tsm_client function to confirm dsmcad process is running
+#  2014/06/05   Nick Jeffrey	Add check to confirm that /etc/rc.local is called from /etc/inittab
+#  2014/09/05   Nick Jeffrey	Skip check of /etc/rc.local file on VIO servers
+#  2014/09/05   Nick Jeffrey	Only check time sync if machine has been up for at least one hour
+#  2014/09/10   Nick Jeffrey	Add check_uptime subroutine to see if machine has been recently rebooted
 #  2014/10/29   Nick Jeffrey    AIX 6100-09-02 tightened up permissions on /var/spool/mqueue.  Use sudo to check directory contents.
-#  2014/10/29	Nick Jeffrey	Bug fix - change method for calculating number of mail messages in sendmail queue.
-#  2015/05/06	Nick Jeffrey	Add check_netbackup_client function for hosts that use NetBackup for backups
-#  2015/06/08	Nick Jeffrey	Skip DNS checks if DNS server is 8.8.8.8 or 8.8.4.4 (Google public DNS used by DMZ hosts)
-#  2015/06/08	Nick Jeffrey	Add skip_nim_clients array variable to skip NIM checks for AIX hosts out on a DMZ
-#  2015/06/09	Nick Jeffrey	Bug fix in check_for_multiple_instances.  Need to exclude processes containing "ssh" to avoid double-counting on local machine
-#  2016/03/11	Nick Jeffrey	Enhance check_netbackup_client function to confirm hostname is registered correctly with backup server
-#  2016/05/24	Nick Jeffrey	Remove check_printer_queue function  (moved to check_aix_printers script)
-#  2016/05/24	Nick Jeffrey	Remove "touch /var/adm/messages ; sudo refresh -s syslog" section.  Just alert if /var/adm/messages does not exist, but do not try to fix it.
-#  2016/05/24	Nick Jeffrey	Remove "touch /var/adm/wtmp" section.  Just alert if /var/adm/wtmp does not exist, but do not try to fix it.
-#  2016/05/24	Nick Jeffrey	Cleanup obsolete sudo definitions
-#  2016/10/13	Nick Jeffrey	add check_iocp function to confirm I/O completion ports are available
-#  2017/08/21	Nick Jeffrey	Add check_ipv6_loopback function to confirm that IPv6 loopback address ::1 exists on lo0 eth adapter - required for AIX 7.x SNMP daemons
-#  2018/03/28	Nick Jeffrey	Remove ping_ntp_servers and check_time_sync functions.  Functionality moved to separate script check_unix_time_sync
-#  2018/03/28	Nick Jeffrey	Enhance check_iocp function to confirm it does not run on VIOS
-#  2018/03/28	Nick Jeffrey	Check for existence of /var/log/*.log files used by syslog
+#  2014/10/29   Nick Jeffrey	Bug fix - change method for calculating number of mail messages in sendmail queue.
+#  2015/05/06   Nick Jeffrey	Add check_netbackup_client function for hosts that use NetBackup for backups
+#  2015/06/08   Nick Jeffrey	Skip DNS checks if DNS server is 8.8.8.8 or 8.8.4.4 (Google public DNS used by DMZ hosts)
+#  2015/06/08   Nick Jeffrey	Add skip_nim_clients array variable to skip NIM checks for AIX hosts out on a DMZ
+#  2015/06/09   Nick Jeffrey	Bug fix in check_for_multiple_instances.  Need to exclude processes containing "ssh" to avoid double-counting on local machine
+#  2016/03/11   Nick Jeffrey	Enhance check_netbackup_client function to confirm hostname is registered correctly with backup server
+#  2016/05/24   Nick Jeffrey	Remove check_printer_queue function  (moved to check_aix_printers script)
+#  2016/05/24   Nick Jeffrey	Remove "touch /var/adm/messages ; sudo refresh -s syslog" section.  Just alert if /var/adm/messages does not exist, but do not try to fix it.
+#  2016/05/24   Nick Jeffrey	Remove "touch /var/adm/wtmp" section.  Just alert if /var/adm/wtmp does not exist, but do not try to fix it.
+#  2016/05/24   Nick Jeffrey	Cleanup obsolete sudo definitions
+#  2016/10/13   Nick Jeffrey	add check_iocp function to confirm I/O completion ports are available
+#  2017/08/21   Nick Jeffrey	Add check_ipv6_loopback function to confirm that IPv6 loopback address ::1 exists on lo0 eth adapter - required for AIX 7.x SNMP daemons
+#  2018/03/28   Nick Jeffrey	Remove ping_ntp_servers and check_time_sync functions.  Functionality moved to separate script check_unix_time_sync
+#  2018/03/28   Nick Jeffrey	Enhance check_iocp function to confirm it does not run on VIOS
+#  2018/03/28   Nick Jeffrey	Check for existence of /var/log/*.log files used by syslog
 #  2019/02/04   Nick Jeffrey	ping default gateway
-#  2019/03/11	Nick Jeffrey	Remove section that validates DNS name resolution.  Broken out into a separate script called check_dns_unix.
-#  2019/03/11	Nick Jeffrey	Remove section that validates IPv6 loopback name resolution.  Broken out into a separate script called check_dns_unix.
-#  2019/10/04	Nick Jeffrey	Bug fix in check_netbackup_client 
+#  2019/03/11   Nick Jeffrey	Remove section that validates DNS name resolution.  Broken out into a separate script called check_dns_unix.
+#  2019/03/11   Nick Jeffrey	Remove section that validates IPv6 loopback name resolution.  Broken out into a separate script called check_dns_unix.
+#  2019/10/04   Nick Jeffrey	Bug fix in check_netbackup_client 
+#  2021/06/27   Nick Jeffrey	Documentation updates
 
 
 #
@@ -89,14 +90,13 @@
 #           - confirm hostname does not contain FQDN
 #           - confirm sendmail queue is not filling up with queued messages
 #           - confirm host exists in DNS
-#           - confirm print jobs are not piling up in print queue
 #           - if a smart host is listed in /etc/mail/sendmail.cf, confirm we can ping it
 #           - check for important processes
 #           - syslog sanity checks
 #           - confirm each hdisk in rootvg has a boot logical volume (ie is bootable)
 #           - confirm boot logical volume exists
 #           - confirm all varied on volume groups are readable (checks for corrupt volume groups)
-# 	    - confirm /etc/rc.local is executed at boot time
+# 	         - confirm /etc/rc.local is executed at boot time
 #           - confirm recent TSM backup (if TSM client is installed)
 #           - confirm recent Symantec NetBackup activity (if installed)
 #           - confirm recent Avamar backup activity (if installed)
@@ -158,7 +158,7 @@
 #      Cmnd_Alias      NIMCLIENT = /usr/sbin/nimclient
 #      Cmnd_Alias      SYSDUMPDEV = /usr/bin/sysdumpdev
 #      Cmnd_Alias      STARTSRC = /usr/bin/startsrc
-#      NAGIOS_USER ALL = (root) NOPASSWD: LS,GREP,BOOTLIST,NIMCLIENT,NTPQ,SYSDUMPDEV,STARTSRC
+#      NAGIOS_USER ALL = (root) NOPASSWD: LS,GREP,BOOTLIST,NIMCLIENT,SYSDUMPDEV,STARTSRC
 #
 #
 #
@@ -573,7 +573,7 @@ function check_for_multiple_instances {
       echo Running check_for_multiple_instances function
    fi
    instances=`ps -ef | grep -v grep | grep -v ssh | grep $scriptname | wc -l | awk '{print $1}'`
-   if [[ $instances -gt 2 ]] then
+   if [[ $instances -gt 4 ]] then
       echo "$CHECK_NAME WARN - there are $instances instances of the $scriptname script running.  The script may have hung. "
       exit $UNKNOWN
    fi
@@ -650,7 +650,7 @@ function check_sudo {
    # check for the user privilege specification line(s) in the sudoers file
    #
    # define an array with all the commands
-   set -A sudo_commands LS GREP BOOTLIST NIMCLIENT NTPQ SYSDUMPDEV STARTSRC
+   set -A sudo_commands LS GREP BOOTLIST NIMCLIENT SYSDUMPDEV STARTSRC
    #
    # loop through array
    for sudo_command in ${sudo_commands[*]} ; do
@@ -912,6 +912,7 @@ function check_rmc_daemon {
       echo "$CHECK_NAME WARN - session could not be established with RMC daemon.  This can happen if the LPAR cloned from a mksysb.  You need to fix up the RPM daemons with these commands:  /usr/sbin/rsct/install/bin/recfgct -s ; /usr/sbin/rsct/bin/rmcctrl -z ; rm /var/ct/cfg/ct_has.thl ; /usr/sbin/rsct/bin/rmcctrl -A "
       exit $WARN
    fi
+   
 }			#end of function   
 
 
