@@ -8,69 +8,70 @@
    
 # CHANGE LOG
 # ----------
-#  2008/09/14	Nick Jeffrey	Script created
-#  2008/10/18	Nick Jeffrey	Add more error checking
-#  2008/11/19	Nick Jeffrey	Add checks for MPIO disk paths, syslog, name resolution, mail queues
-#  2008/12/13	Nick Jeffrey	Add checks for time synchronization
-#  2009/01/14	Nick Jeffrey	Enhance time sync checks to look at stratums of time servers
-#  2009/01/21	Nick Jeffrey	Add a check for /dev/ipldevice
-#  2009/01/22	Nick Jeffrey	Confirm all active volume groups are readable
-#  2009/05/06	Nick Jeffrey	Enhance check for qdaemon process
-#  2009/06/11	Nick Jeffrey	Add check for confirming name resolution for loopback (required by SNMP daemons)
-#  2009/06/22	Nick Jeffrey	Add check for stale physical partitions in all active volume groups
-#  2009/06/29	Nick Jeffrey	Check status of system attention light
-#  2009/06/30	Nick Jeffrey	Check to see if AIX is using reserved source ports (<1024) for NFS mounts
-#  2009/08/29	Nick Jeffrey	Break script up into functions to make it more modular
-#  2010/08/20	Nick Jeffrey	Bug fix - check_sysdumpdev function was calling $SUDO variable instead of $sudo
-#  2010/09/25	Nick Jeffrey	Bug fix - confirm default route exists
-#  2010/09/26	Nick Jeffrey	Add $verbose variable for extra output for debugging
-#  2010/09/26	Nick Jeffrey	Add check_sudo function
-#  2010/09/28	Nick Jeffrey	Add check_avamar_client function for hosts that use EMC Avamar for backups
-#  2011/01/07	Nick Jeffrey	Add check_tsm_client function for hosts that use TSM backup/archive client
-#  2011/01/07	Nick Jeffrey	Add check_rmc_daemon function
-#  2011/01/07	Nick Jeffrey	Update the check_system_attention_light function to stop using the lsrsrc command
-#  2011/01/08	Nick Jeffrey	Skip check for /etc/niminfo on VIO servers
-#  2011/01/08	Nick Jeffrey	Skip avamar,tsm checks on VIO servers
-#  2011/01/08	Nick Jeffrey	bug fixes in check_sudo function
-#  2011/01/08	Nick Jeffrey	Add check_nim_server function
-#  2011/01/08	Nick Jeffrey	Add check_sshd function
-#  2011/01/09   Nick Jeffrey	Add check_for_multiple_instances
-#  2011/05/12   Nick Jeffrey    Bug fixes in check_sendmail_queue function  
-#  2011/05/14   Nick Jeffrey    Custom queue_threshold=1000 for flyht.com (busy mail server) 
-#  2011/05/14   Nick Jeffrey    Assorted formatting fixes 
-#  2011/05/14   Nick Jeffrey    Remove check_mpio function - duplicated functionality in the check_aix_disk_paths script 
-#  2012/12/20   Nick Jeffrey	Enhance check_name_resolution to perform forward DNS queries against all nameservers 
-#  2012/12/20   Nick Jeffrey	Add uname check to ensure this system is running AIX
-#  2012/12/20   Nick Jeffrey	Enhance the check_wtmp function
-#  2012/12/21   Nick Jeffrey	Enhance check_name_resolution to perform reverse DNS queries against all nameservers 
-#  2012/12/21   Nick Jeffrey	Add check for bogus 0.0.0.0 IP address entry in /etc/hosts
-#  2013/08/01   Nick Jeffrey	Add ping_ntp_servers function
-#  2014/04/14   Nick Jeffrey	enhance check_tsm_client function to confirm dsmcad process is running
-#  2014/06/05   Nick Jeffrey	Add check to confirm that /etc/rc.local is called from /etc/inittab
-#  2014/09/05   Nick Jeffrey	Skip check of /etc/rc.local file on VIO servers
-#  2014/09/05   Nick Jeffrey	Only check time sync if machine has been up for at least one hour
-#  2014/09/10   Nick Jeffrey	Add check_uptime subroutine to see if machine has been recently rebooted
-#  2014/10/29   Nick Jeffrey    AIX 6100-09-02 tightened up permissions on /var/spool/mqueue.  Use sudo to check directory contents.
-#  2014/10/29   Nick Jeffrey	Bug fix - change method for calculating number of mail messages in sendmail queue.
-#  2015/05/06   Nick Jeffrey	Add check_netbackup_client function for hosts that use NetBackup for backups
-#  2015/06/08   Nick Jeffrey	Skip DNS checks if DNS server is 8.8.8.8 or 8.8.4.4 (Google public DNS used by DMZ hosts)
-#  2015/06/08   Nick Jeffrey	Add skip_nim_clients array variable to skip NIM checks for AIX hosts out on a DMZ
-#  2015/06/09   Nick Jeffrey	Bug fix in check_for_multiple_instances.  Need to exclude processes containing "ssh" to avoid double-counting on local machine
-#  2016/03/11   Nick Jeffrey	Enhance check_netbackup_client function to confirm hostname is registered correctly with backup server
-#  2016/05/24   Nick Jeffrey	Remove check_printer_queue function  (moved to check_aix_printers script)
-#  2016/05/24   Nick Jeffrey	Remove "touch /var/adm/messages ; sudo refresh -s syslog" section.  Just alert if /var/adm/messages does not exist, but do not try to fix it.
-#  2016/05/24   Nick Jeffrey	Remove "touch /var/adm/wtmp" section.  Just alert if /var/adm/wtmp does not exist, but do not try to fix it.
-#  2016/05/24   Nick Jeffrey	Cleanup obsolete sudo definitions
-#  2016/10/13   Nick Jeffrey	add check_iocp function to confirm I/O completion ports are available
-#  2017/08/21   Nick Jeffrey	Add check_ipv6_loopback function to confirm that IPv6 loopback address ::1 exists on lo0 eth adapter - required for AIX 7.x SNMP daemons
-#  2018/03/28   Nick Jeffrey	Remove ping_ntp_servers and check_time_sync functions.  Functionality moved to separate script check_unix_time_sync
-#  2018/03/28   Nick Jeffrey	Enhance check_iocp function to confirm it does not run on VIOS
-#  2018/03/28   Nick Jeffrey	Check for existence of /var/log/*.log files used by syslog
-#  2019/02/04   Nick Jeffrey	ping default gateway
-#  2019/03/11   Nick Jeffrey	Remove section that validates DNS name resolution.  Broken out into a separate script called check_dns_unix.
-#  2019/03/11   Nick Jeffrey	Remove section that validates IPv6 loopback name resolution.  Broken out into a separate script called check_dns_unix.
-#  2019/10/04   Nick Jeffrey	Bug fix in check_netbackup_client 
-#  2021/06/27   Nick Jeffrey	Documentation updates
+#  2008/09/14	njeffrey	Script created
+#  2008/10/18	njeffrey	Add more error checking
+#  2008/11/19	njeffrey	Add checks for MPIO disk paths, syslog, name resolution, mail queues
+#  2008/12/13	njeffrey	Add checks for time synchronization
+#  2009/01/14	njeffrey	Enhance time sync checks to look at stratums of time servers
+#  2009/01/21	njeffrey	Add a check for /dev/ipldevice
+#  2009/01/22	njeffrey	Confirm all active volume groups are readable
+#  2009/05/06	njeffrey	Enhance check for qdaemon process
+#  2009/06/11	njeffrey	Add check for confirming name resolution for loopback (required by SNMP daemons)
+#  2009/06/22	njeffrey	Add check for stale physical partitions in all active volume groups
+#  2009/06/29	njeffrey	Check status of system attention light
+#  2009/06/30	njeffrey	Check to see if AIX is using reserved source ports (<1024) for NFS mounts
+#  2009/08/29	njeffrey	Break script up into functions to make it more modular
+#  2010/08/20	njeffrey	Bug fix - check_sysdumpdev function was calling $SUDO variable instead of $sudo
+#  2010/09/25	njeffrey	Bug fix - confirm default route exists
+#  2010/09/26	njeffrey	Add $verbose variable for extra output for debugging
+#  2010/09/26	njeffrey	Add check_sudo function
+#  2010/09/28	njeffrey	Add check_avamar_client function for hosts that use EMC Avamar for backups
+#  2011/01/07	njeffrey	Add check_tsm_client function for hosts that use TSM backup/archive client
+#  2011/01/07	njeffrey	Add check_rmc_daemon function
+#  2011/01/07	njeffrey	Update the check_system_attention_light function to stop using the lsrsrc command
+#  2011/01/08	njeffrey	Skip check for /etc/niminfo on VIO servers
+#  2011/01/08	njeffrey	Skip avamar,tsm checks on VIO servers
+#  2011/01/08	njeffrey	bug fixes in check_sudo function
+#  2011/01/08	njeffrey	Add check_nim_server function
+#  2011/01/08	njeffrey	Add check_sshd function
+#  2011/01/09   njeffrey	Add check_for_multiple_instances
+#  2011/05/12   njeffrey    	Bug fixes in check_sendmail_queue function  
+#  2011/05/14   njeffrey    	Custom queue_threshold=1000 for flyht.com (busy mail server) 
+#  2011/05/14   njeffrey    	Assorted formatting fixes 
+#  2011/05/14   njeffrey    	Remove check_mpio function - duplicated functionality in the check_aix_disk_paths script 
+#  2012/12/20   njeffrey	Enhance check_name_resolution to perform forward DNS queries against all nameservers 
+#  2012/12/20   njeffrey	Add uname check to ensure this system is running AIX
+#  2012/12/20   njeffrey	Enhance the check_wtmp function
+#  2012/12/21   njeffrey	Enhance check_name_resolution to perform reverse DNS queries against all nameservers 
+#  2012/12/21   njeffrey	Add check for bogus 0.0.0.0 IP address entry in /etc/hosts
+#  2013/08/01   njeffrey	Add ping_ntp_servers function
+#  2014/04/14   njeffrey	enhance check_tsm_client function to confirm dsmcad process is running
+#  2014/06/05   njeffrey	Add check to confirm that /etc/rc.local is called from /etc/inittab
+#  2014/09/05   njeffrey	Skip check of /etc/rc.local file on VIO servers
+#  2014/09/05   njeffrey	Only check time sync if machine has been up for at least one hour
+#  2014/09/10   njeffrey	Add check_uptime subroutine to see if machine has been recently rebooted
+#  2014/10/29   njeffrey    	AIX 6100-09-02 tightened up permissions on /var/spool/mqueue.  Use sudo to check directory contents.
+#  2014/10/29   njeffrey	Bug fix - change method for calculating number of mail messages in sendmail queue.
+#  2015/05/06   njeffrey	Add check_netbackup_client function for hosts that use NetBackup for backups
+#  2015/06/08   njeffrey	Skip DNS checks if DNS server is 8.8.8.8 or 8.8.4.4 (Google public DNS used by DMZ hosts)
+#  2015/06/08   njeffrey	Add skip_nim_clients array variable to skip NIM checks for AIX hosts out on a DMZ
+#  2015/06/09   njeffrey	Bug fix in check_for_multiple_instances.  Need to exclude processes containing "ssh" to avoid double-counting on local machine
+#  2016/03/11   njeffrey	Enhance check_netbackup_client function to confirm hostname is registered correctly with backup server
+#  2016/05/24   njeffrey	Remove check_printer_queue function  (moved to check_aix_printers script)
+#  2016/05/24   njeffrey	Remove "touch /var/adm/messages ; sudo refresh -s syslog" section.  Just alert if /var/adm/messages does not exist, but do not try to fix it.
+#  2016/05/24   njeffrey	Remove "touch /var/adm/wtmp" section.  Just alert if /var/adm/wtmp does not exist, but do not try to fix it.
+#  2016/05/24   njeffrey	Cleanup obsolete sudo definitions
+#  2016/10/13   njeffrey	add check_iocp function to confirm I/O completion ports are available
+#  2017/08/21   njeffrey	Add check_ipv6_loopback function to confirm that IPv6 loopback address ::1 exists on lo0 eth adapter - required for AIX 7.x SNMP daemons
+#  2018/03/28   njeffrey	Remove ping_ntp_servers and check_time_sync functions.  Functionality moved to separate script check_unix_time_sync
+#  2018/03/28   njeffrey	Enhance check_iocp function to confirm it does not run on VIOS
+#  2018/03/28   njeffrey	Check for existence of /var/log/*.log files used by syslog
+#  2019/02/04   njeffrey	ping default gateway
+#  2019/03/11   njeffrey	Remove section that validates DNS name resolution.  Broken out into a separate script called check_dns_unix.
+#  2019/03/11   njeffrey	Remove section that validates IPv6 loopback name resolution.  Broken out into a separate script called check_dns_unix.
+#  2019/10/04   njeffrey	Bug fix in check_netbackup_client 
+#  2021/06/27   njeffrey	Documentation updates
+#  2021/11/08   njeffrey    	Confirm /var/spool/mail folder exists in check_user_mailboxes function
 
 
 #
@@ -1630,20 +1631,22 @@ function check_user_mailboxes {
    fi
    #
    #
-   # get list of users that have mail and put into an array
-   set -A users_with_mail `$find /var/spool/mail -type f`
-   for mailfile in ${users_with_mail[*]} ; do
-      #
-      # the file at /var/spool/mail/$user is a single file that contains all the mail for that user
-      # parse out the From: lines to figure out how many messages are in that file
-      messagecount=`$sudo $grep From: ${mailfile} | $wc -l | $sed -e "s/ //g"`
-      # figure out the username based on the /var/spool/mail/$user file
-      user=`$basename $mailfile` 
-      if [[ "$messagecount" -ge 1000 ]] then 
-         echo "$CHECK_NAME WARN - $messagecount mail messages for $user in /var/spool/mail/$user.  Please have the owner of this mailbox login as $user and clear their mail with mail command"
-         exit $WARN
-      fi
-   done
+   if [[ -d "/var/spool/mail" ]] then           #confirm /var/spool/mail/ directory exists
+      # get list of users that have mail and put into an array
+      set -A users_with_mail `$find /var/spool/mail -type f`
+      for mailfile in ${users_with_mail[*]} ; do
+         #
+         # the file at /var/spool/mail/$user is a single file that contains all the mail for that user
+         # parse out the From: lines to figure out how many messages are in that file
+         messagecount=`$sudo $grep From: ${mailfile} | $wc -l | $sed -e "s/ //g"`
+         # figure out the username based on the /var/spool/mail/$user file
+         user=`$basename $mailfile` 
+         if [[ "$messagecount" -ge 1000 ]] then 
+            echo "$CHECK_NAME WARN - $messagecount mail messages for $user in /var/spool/mail/$user.  Please have the owner of this mailbox login as $user and clear their mail with mail command"
+            exit $WARN
+         fi
+      done
+   fi
 }			#end of function   
 
 
