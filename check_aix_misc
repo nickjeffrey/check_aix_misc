@@ -72,7 +72,7 @@
 #  2019/10/04   njeffrey	Bug fix in check_netbackup_client 
 #  2021/06/27   njeffrey	Documentation updates
 #  2021/11/08   njeffrey    	Confirm /var/spool/mail folder exists in check_user_mailboxes function
-
+#  2022/01/02   njeffrey        Use "sudo find /var/spool/mqueue" to look for zero-length files in check_sendmail_queue function
 
 #
 # Nagios plugin for performing miscellaneous AIX checks:
@@ -1581,8 +1581,7 @@ function check_sendmail_queue {
       #
       # warn about any zero-length files that should be deleted
       #
-      $find $queue_dir -size 0 | $grep -q mqueue && echo "$CHECK_NAME WARN Found zero-length files in sendmail queue. Please delete zero length files in $queue_dir"
-      $find $queue_dir -size 0 | $grep -q mqueue && exit $WARN
+      $sudo $find $queue_dir -size 0 | $grep -q mqueue && echo "$CHECK_NAME WARN Found zero-length files in sendmail queue. Please delete zero length files in $queue_dir" && exit $WARN
       #
       # attempt to flush queue to clear out the messages
       #
